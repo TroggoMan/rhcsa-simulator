@@ -15,6 +15,62 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
+usage() {
+    cat <<'USAGE'
+Usage: ./install.sh [OPTIONS]
+
+  --yes, -y        Unattended: assume yes to every prompt (overwrites any
+                   existing install). Implied when stdin is not a terminal.
+  --no-populate    Skip the optional DNF-transaction-history setup.
+  --help, -h       Show this message.
+USAGE
+}
+
+ASSUME_YES=0
+POPULATE=1
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --yes|-y)      ASSUME_YES=1 ;;
+        --no-populate) POPULATE=0 ;;
+        --help|-h)     usage; exit 0 ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+# Nothing can answer a prompt in a pipeline or a CI job, and the reads below
+# would take an empty line and cancel the install. Go unattended instead.
+if [ ! -t 0 ]; then
+    ASSUME_YES=1
+fi
+
+# Ask a yes/no question, honouring --yes. $2 is the default when the user
+# just presses enter: "y" or "n".
+#
+# Reads a whole line rather than a single character. With `read -n 1` the
+# newline stays in the buffer, so the NEXT prompt consumed it and silently
+# took its default — which is how a piped "n" to the DNF question still
+# populated the history.
+confirm() {
+    local prompt="$1" default="$2" reply
+    if [ "$ASSUME_YES" -eq 1 ]; then
+        return 0
+    fi
+    if [ "$default" = "y" ]; then
+        read -p "$prompt [Y/n]: " -r reply
+        [ -z "$reply" ] && return 0
+    else
+        read -p "$prompt [y/N]: " -r reply
+        [ -z "$reply" ] && return 1
+    fi
+    [[ $reply =~ ^[Yy] ]]
+}
+
 INSTALL_DIR="/opt/rhcsa-simulator"
 CMD_NAME="rhcsa-simulator"
 REQUIRED_PYTHON_VERSION="3.6"
@@ -90,9 +146,7 @@ case "$OS_ID" in
             *)
                 echo -e "${YELLOW}Warning: EX200 v10 targets major version 10 (9 is usable).${NC}"
                 echo -e "${YELLOW}Version ${OS_MAJOR} may not match what the tasks expect.${NC}"
-                read -p "Continue anyway? [y/N]: " -n 1 -r
-                echo
-                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                if ! confirm "Continue anyway?" n; then
                     exit 1
                 fi
                 ;;
@@ -105,9 +159,7 @@ case "$OS_ID" in
         echo -e "${YELLOW}Warning: This tool is designed for RHEL / AlmaLinux / Rocky Linux 9-10.${NC}"
         echo -e "${YELLOW}Package names, SELinux, firewalld and boot layout differ elsewhere,${NC}"
         echo -e "${YELLOW}so most tasks will not grade correctly.${NC}"
-        read -p "Continue anyway? [y/N]: " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if ! confirm "Continue anyway?" n; then
             exit 1
         fi
         ;;
@@ -117,9 +169,7 @@ esac
 echo "Creating installation directory..."
 if [ -d "$INSTALL_DIR" ]; then
     echo -e "${YELLOW}Warning: Installation directory already exists${NC}"
-    read -p "Remove existing installation? [y/N]: " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if confirm "Remove existing installation?" n; then
         rm -rf "$INSTALL_DIR"
     else
         echo "Installation cancelled"
@@ -309,9 +359,7 @@ echo "Some practice tasks (e.g. DNF history) work best with a populated"
 echo "transaction history. This installs and removes small packages to"
 echo "build up ~12 DNF transactions. Nothing is permanently changed."
 echo
-read -p "Populate DNF transaction history now? [Y/n]: " -r
-echo
-if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+if [ "$POPULATE" -eq 1 ] && confirm "Populate DNF transaction history now?" y; then
     echo "Building DNF transaction history..."
     PRACTICE_PKGS=(tree dos2unix bc mtr strace lsof pv screen nmap zip ltrace telnet whois jq)
     CYCLES=0
