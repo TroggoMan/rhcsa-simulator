@@ -35,8 +35,15 @@ class ExamSession:
     reboot simulation, and ResultsDB persistence.
     """
 
-    def __init__(self, task_count=None, timer_enabled=True, duration_minutes=None, reboot_simulation=None):
+    def __init__(self, task_count=None, timer_enabled=True, duration_minutes=None,
+                 reboot_simulation=None, gui_port=None, gui_bind='0.0.0.0'):
         self.task_count = task_count or settings.DEFAULT_EXAM_TASKS
+        # Browser task panel — the exam shows its questions in a window you
+        # keep beside your terminals, so practising that is part of the point.
+        # None = off (opt-in via --gui).
+        self.gui_port = gui_port
+        self.gui_bind = gui_bind
+        self.panel = None
         self.timer_enabled = timer_enabled
         self.duration_minutes = duration_minutes or settings.DEFAULT_EXAM_DURATION
         self.reboot_simulation = reboot_simulation if reboot_simulation is not None else settings.REBOOT_SIMULATION
@@ -110,6 +117,10 @@ class ExamSession:
         # Refresh the remote NFS server's exports so this exam starts clean.
         self._reprovision_nfs()
 
+        # Bring the browser panel up before the sheet is shown, so the URL is
+        # on screen while the candidate still has both hands free.
+        self._start_task_panel()
+
         self._display_tasks()
 
         # Start timer
@@ -132,6 +143,38 @@ class ExamSession:
 
         print("\nComplete the tasks on your system, then return here to validate your work.")
         print("=" * 60)
+
+    def _start_task_panel(self):
+        """Serve the task sheet to a browser window. Opt-in, best-effort: a
+        panel that won't start must never prevent an exam from running."""
+        if not self.gui_port:
+            return
+        from core import task_gui
+        task_gui.clear_marks()
+        self.panel, urls = task_gui.start_for_session(
+            self, port=self.gui_port, bind=self.gui_bind)
+        if not urls:
+            print(fmt.warning(
+                f"\nTask panel could not start on port {self.gui_port} "
+                f"(in use?). Continuing without it — the task sheet below is "
+                f"the same content."))
+            return
+        print()
+        print(fmt.success("Task panel running — open it beside your terminals:"))
+        for url in urls:
+            print(fmt.bold(f"    {url}"))
+        if self.gui_bind not in ('127.0.0.1', 'localhost'):
+            print(fmt.dim("  (Unauthenticated and reachable from your LAN. It "
+                          "serves exam questions only — no shell, no control "
+                          "of this box.)"))
+
+    def _stop_task_panel(self):
+        if self.panel:
+            try:
+                self.panel.stop()
+            except Exception:
+                pass
+            self.panel = None
 
     def _provision_devices(self):
         """Assign a distinct practice device to each whole-disk task so an LVM
@@ -538,18 +581,26 @@ def _select_reboot_simulation():
             print(fmt.error("Invalid selection"))
 
 
-def run_exam_mode():
+def run_exam_mode(gui_port=None, gui_bind='0.0.0.0'):
     """Run exam mode (convenience function)."""
     task_count = _select_exam_task_count()
     reboot_sim = _select_reboot_simulation()
-    session = ExamSession(task_count=task_count, reboot_simulation=reboot_sim)
+    session = ExamSession(task_count=task_count, reboot_simulation=reboot_sim,
+                          gui_port=gui_port, gui_bind=gui_bind)
     session.start()
 
     if not session.tasks:
+        session._stop_task_panel()
         return None
 
     input("\nPress Enter when you're ready to validate your work...")
 
-    # No teardown on any exit path — the environment persists for review and
-    # disputes. The next session start (or Setup → Reset Machine) cleans up.
-    return session.validate_all()
+    try:
+        # No teardown on any exit path — the environment persists for review
+        # and disputes. The next session start (or Setup → Reset Machine)
+        # cleans up.
+        return session.validate_all()
+    finally:
+        # The panel is a view of a running exam; once grading starts it is
+        # showing a sheet nobody can act on any more.
+        session._stop_task_panel()

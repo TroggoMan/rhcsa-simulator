@@ -55,6 +55,16 @@ Quick Start Examples:
     parser.add_argument('--import-mode', choices=['replace', 'merge'],
                         default='replace',
                         help='How --import-code applies (default: replace)')
+    parser.add_argument('--gui', nargs='?', const=8080, type=int, metavar='PORT',
+                        help='Serve the exam task sheet to a browser window '
+                             '(default port 8080), the way the real exam '
+                             'presents it — collapsed checklist with '
+                             'done/revisit ticks')
+    parser.add_argument('--gui-bind', default='0.0.0.0', metavar='ADDR',
+                        help='Address the task panel listens on '
+                             '(default 0.0.0.0, so a headless exam VM can be '
+                             'read from your laptop; use 127.0.0.1 to keep it '
+                             'local)')
     parser.add_argument('--version', action='version',
                         version=f'%(prog)s {settings.VERSION}')
 
@@ -334,7 +344,7 @@ def main():
 
     if args.exam:
         from core.exam import run_exam_mode
-        run_exam_mode()
+        run_exam_mode(gui_port=args.gui, gui_bind=args.gui_bind)
         return 0
 
     if args.learn:
@@ -408,7 +418,7 @@ def main():
                 input("\nPress Enter to return to menu...")
 
             elif choice == 'exam':
-                run_exam_mode()
+                run_exam_mode(gui_port=args.gui, gui_bind=args.gui_bind)
                 input("\nPress Enter to return to menu...")
 
             elif choice == 'practice':

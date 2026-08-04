@@ -170,6 +170,27 @@ Run without installing: `sudo python3 rhcsa_simulator.py`.
 sudo rhcsa-simulator    # interactive menu
 ```
 
+### Exam task panel (browser)
+
+The real exam doesn't put the questions in your terminal — they live in a
+window on the exam desktop, selected one at a time from a dropdown, each with
+**Revisit** and **Done** ticks. Managing that window while you work is its own
+skill, so practise it:
+
+```bash
+sudo rhcsa-simulator --exam --gui          # panel on :8080
+sudo rhcsa-simulator --exam --gui 9000     # pick a port
+sudo rhcsa-simulator --exam --gui --gui-bind 127.0.0.1   # local only
+```
+
+The panel prints its URLs at exam start. It binds `0.0.0.0` by default so a
+headless exam VM can be read from your laptop's browser; it is unauthenticated
+and serves exam questions only — no shell, no control of the box.
+
+The ticks are your own bookkeeping. Grading is unchanged: it still runs against
+real system state when you return to the terminal, so ticking "done" earns
+nothing on its own.
+
 | Key | Mode | What it does |
 |---|---|---|
 | `Q` | **Quick Practice** | Short session (you pick 4-20 tasks), fast feedback |
