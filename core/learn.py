@@ -6,7 +6,7 @@ UI dispatcher that loads content from core.content modules.
 import logging
 from utils import formatters as fmt
 from core.content import ContentRegistry
-from config.exam_objectives import EXAM_OBJECTIVES
+from config.exam_objectives import get_objectives
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,12 @@ class LearnMode:
 
         while True:
             fmt.clear_screen()
-            fmt.print_header("LEARN MODE - EX200 v10 Exam Domains")
+            # Learn mode must show the syllabus the candidate will be graded
+            # against — v9 has a Containers domain that v10 does not.
+            from config import settings
+            EXAM_OBJECTIVES = get_objectives()
+            fmt.print_header(
+                f"LEARN MODE - EX200 v{settings.get_exam_version()} Exam Domains")
             print()
 
             for domain_num in sorted(EXAM_OBJECTIVES.keys()):
@@ -107,7 +112,7 @@ class LearnMode:
 
     def _show_domain_topics(self, domain_num, weak_cats, due_cats):
         """Show topics within a domain."""
-        domain = EXAM_OBJECTIVES[domain_num]
+        domain = get_objectives()[domain_num]
         categories = ContentRegistry.get_categories_for_domain(domain_num)
 
         if not categories:

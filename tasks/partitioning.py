@@ -49,7 +49,14 @@ def _partition_dev(device, number):
 
 @TaskRegistry.register("partitioning")
 class CreateMBRPartitionTask(BaseTask):
-    """Create an MBR (msdos) partition using fdisk or parted."""
+    """Create an MBR (msdos) partition using fdisk or parted.
+
+    v9 only. The RHEL 9 objective reads "List, create, delete partitions on
+    MBR and GPT disks"; RHEL 10 narrowed it to "List, create, and delete
+    partitions on GPT disks", so this is off-syllabus for v10.
+    """
+
+    exam_versions = (9,)
 
     disk_slots = 1
 

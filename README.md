@@ -227,6 +227,42 @@ The ticks are your own bookkeeping. Grading is unchanged: it still runs against
 real system state when you return to the terminal, so ticking "done" earns
 nothing on its own.
 
+### Exam version — v10 (default) or v9
+
+```bash
+sudo rhcsa-simulator --exam                    # EX200 v10 (RHEL 10), default
+sudo rhcsa-simulator --exam --exam-version 9   # EX200 v9  (RHEL 9)
+```
+
+The two exams are not the same syllabus, and the difference is not
+symmetric — v9 has an objective section v10 dropped entirely:
+
+| | v9 (RHEL 9) | v10 (RHEL 10) |
+|---|---|---|
+| **Manage containers** (podman/skopeo, run a service in a container, systemd auto-start, persistent storage) | ✅ own section | ❌ removed |
+| **Flatpak** repositories and packages | ❌ | ✅ |
+| **systemd timer units** as a scheduling mechanism | ❌ (at/cron only) | ✅ |
+| Partition tables | MBR **and** GPT | GPT only |
+| set-GID collaboration directories | ✅ | ❌ |
+| "Diagnose routine SELinux policy violations" | ✅ explicit | ❌ |
+
+Switching versions changes which tasks can be drawn, the domain weighting,
+and what Learn mode shows. Out-of-scope tasks are never generated — being
+graded against objectives your exam doesn't contain is worse than a shorter
+task pool.
+
+**Container tasks need an image.** Everything else here works offline, but
+you can't practise containers without one. Pull one before an exam:
+
+```bash
+dnf install -y podman skopeo
+podman pull registry.access.redhat.com/ubi9/ubi-minimal
+```
+
+If no image is cached, container tasks say so in the task text and the
+checks that need a running container are **skipped rather than failed**, so
+you're never marked down for a limitation of the lab.
+
 ### Terminal menu
 
 Everything works without a browser — pass `--no-gui`:
@@ -253,6 +289,7 @@ sudo rhcsa-simulator    # interactive menu
 ```bash
 rhcsa-simulator --exam               # mock exam + task panel window
 rhcsa-simulator --exam --no-gui      # mock exam, terminal only
+rhcsa-simulator --exam-version 9     # simulate EX200 v9 (adds containers)
 rhcsa-simulator --quick [lvm]        # short practice round (pick 4-20 tasks)
 rhcsa-simulator --practice lvm       # practice a specific category
 rhcsa-simulator --learn              # study mode

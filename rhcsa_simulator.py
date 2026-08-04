@@ -31,6 +31,7 @@ Quick Start Examples:
   %(prog)s --quick lvm          5 LVM tasks
   %(prog)s --exam               Full mock exam (task panel in a window)
   %(prog)s --exam --no-gui      Same, terminal only
+  %(prog)s --exam-version 9     Simulate EX200 v9 (RHEL 9): adds containers
   %(prog)s --learn              Domain-based study mode
   %(prog)s --practice lvm       Practice LVM category
   %(prog)s --adaptive           SM-2 driven weak-area practice
@@ -75,6 +76,15 @@ Quick Start Examples:
                              '(default 0.0.0.0, so a headless exam VM can be '
                              'read from your laptop; use 127.0.0.1 to keep it '
                              'local)')
+    # Which EX200 to simulate. v10 is the default because it is the current
+    # exam; v9 candidates get containers and MBR, and lose Flatpak and
+    # systemd timers.
+    parser.add_argument('--exam-version', type=int, metavar='N',
+                        choices=settings.SUPPORTED_EXAM_VERSIONS,
+                        default=settings.DEFAULT_EXAM_VERSION,
+                        help=f'EX200 version to simulate: '
+                             f'{" or ".join(str(v) for v in settings.SUPPORTED_EXAM_VERSIONS)} '
+                             f'(default {settings.DEFAULT_EXAM_VERSION})')
     parser.add_argument('--version', action='version',
                         version=f'%(prog)s {settings.VERSION}')
 
@@ -231,6 +241,11 @@ def main():
     logger = logging.getLogger(__name__)
 
     args = parse_args()
+
+    # Set the exam version before anything reads the task registry or the
+    # objective tables — task filtering, domain weighting and Learn mode all
+    # key off it.
+    settings.set_exam_version(args.exam_version)
 
     # Handle --list-categories without root
     if args.list_categories:

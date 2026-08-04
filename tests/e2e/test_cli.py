@@ -6,6 +6,8 @@ import pytest
 import sys
 from unittest.mock import patch, MagicMock
 
+from config import settings
+
 
 pytestmark = pytest.mark.e2e
 
@@ -19,6 +21,11 @@ def _args(**overrides):
         list_categories=False, quick=None, exam=False, learn=None,
         practice=None, adaptive=False,
         export_code=False, import_code=None, import_mode='replace',
+        # Real values, not MagicMocks: main() feeds these to
+        # settings.set_exam_version() and the task panel, both of which
+        # validate their input rather than accepting anything truthy.
+        exam_version=settings.DEFAULT_EXAM_VERSION,
+        gui=None, gui_bind='127.0.0.1',
     )
     defaults.update(overrides)
     return MagicMock(**defaults)

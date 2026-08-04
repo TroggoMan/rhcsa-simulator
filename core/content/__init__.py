@@ -68,7 +68,8 @@ class ContentRegistry:
     def get_categories_for_domain(cls, domain_number):
         """Get category keys belonging to a specific domain."""
         cls.initialize()
-        from config.exam_objectives import EXAM_OBJECTIVES
+        from config.exam_objectives import get_objectives
+        EXAM_OBJECTIVES = get_objectives()
 
         domain = EXAM_OBJECTIVES.get(domain_number, {})
         return [c for c in domain.get("categories", []) if c in cls._content]

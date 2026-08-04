@@ -51,6 +51,14 @@ python3 -m pytest -v            # Verbose output
 ## Key Facts
 
 - **Target OS**: RHEL 10 / Rocky Linux 9-10 / AlmaLinux 9-10
+- **Two exam versions.** `--exam-version 9|10` (default 10). v9 adds the
+  `containers` category and MBR partitioning; v10 adds `flatpak` and
+  `systemd_timers`. Gating lives in `config/settings.py`
+  (`VERSION_EXCLUDED_CATEGORIES` for whole categories, `exam_versions` on a
+  task class for one-off cases like MBR) and is enforced in
+  `TaskRegistry.in_scope()`. Objectives/weights per version are in
+  `config/exam_objectives.py` — call `get_objectives()`, never the version
+  dicts directly. A task that is out of scope must never be drawn.
 - **Never hardcode distro-specific names.** Anything that answers "is this the
   box's own OS, or the candidate's practice storage?" goes through
   `utils/system_id.py`, which *probes* — system VGs come from what actually

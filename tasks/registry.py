@@ -91,14 +91,50 @@ class TaskRegistry:
         return sum(len(tasks) for tasks in cls._tasks.values())
 
     @classmethod
+    def in_scope(cls, task_class, version=None):
+        """True if this task belongs to the exam version being simulated.
+
+        Two gates: the category (settings.VERSION_EXCLUDED_CATEGORIES) and
+        the task's own `exam_versions`. A task out of scope must never be
+        drawn — grading someone against a syllabus their exam does not use is
+        worse than having fewer tasks.
+        """
+        version = version if version is not None else settings.get_exam_version()
+        allowed = getattr(task_class, 'exam_versions', None)
+        if allowed is not None and version not in allowed:
+            return False
+        category = getattr(task_class, 'category', None)
+        if category is None:
+            # Category is set on the instance, not the class, for most tasks.
+            try:
+                category = task_class().category
+            except Exception:
+                return True
+        return settings.category_in_scope(category, version)
+
+    @classmethod
+    def categories_in_scope(cls, version=None):
+        """Registered categories that this exam version actually tests."""
+        return [c for c in cls._tasks
+                if settings.category_in_scope(c, version)]
+
+    @classmethod
     def get_random_task(cls, category=None, difficulty=None, skip_reboot=False):
         if category:
+            if not settings.category_in_scope(category):
+                return None
             task_classes = cls._tasks.get(category, [])
         else:
             task_classes = []
-            for cat_tasks in cls._tasks.values():
-                task_classes.extend(cat_tasks)
+            for cat in cls.categories_in_scope():
+                task_classes.extend(cls._tasks.get(cat, []))
 
+        if not task_classes:
+            return None
+
+        # Drop tasks the active exam version does not cover (e.g. MBR
+        # partitioning, which v10 removed).
+        task_classes = [tc for tc in task_classes if cls.in_scope(tc)]
         if not task_classes:
             return None
 
@@ -180,9 +216,10 @@ class TaskRegistry:
         max_attempts = count * 10
 
         if categories:
-            available_categories = [c for c in categories if c in cls._tasks]
+            available_categories = [c for c in categories if c in cls._tasks
+                                    and settings.category_in_scope(c)]
         else:
-            available_categories = list(cls._tasks.keys())
+            available_categories = cls.categories_in_scope()
 
         if not available_categories:
             return []
@@ -230,7 +267,8 @@ class TaskRegistry:
             disk_budget = max(disk_budget, 3)  # floor: exam start ensures >=3 loops
 
         # Distribute tasks across domains weighted by domain weight
-        from config.exam_objectives import EXAM_OBJECTIVES
+        from config.exam_objectives import get_objectives
+        EXAM_OBJECTIVES = get_objectives()
         total_weight = sum(d["weight"] for d in EXAM_OBJECTIVES.values())
 
         domain_counts = {}

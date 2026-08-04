@@ -335,6 +335,7 @@ class ExamSession:
         fmt.print_header("RHCSA MOCK EXAM", char='=')
 
         print(fmt.bold("Exam Information:"))
+        print(f"  Exam: EX200 v{settings.get_exam_version()}")
         print(f"  Tasks: {self.task_count}")
         print(f"  Duration: {self.duration_minutes} minutes" if self.timer_enabled else "  Duration: No time limit")
         print(f"  Pass threshold: {settings.EXAM_PASS_THRESHOLD * 100:.0f}%")

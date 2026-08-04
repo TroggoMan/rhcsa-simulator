@@ -310,6 +310,42 @@ class SafeCommandExecutor:
                     f"Only read-only operations permitted."
                 )
 
+        # Containers: inspection only. The candidate's containers, images,
+        # volumes and generated systemd units are all things we look at and
+        # never touch — `podman rm` on a graded container would destroy the
+        # very state the check is about.
+        elif base_cmd == 'podman':
+            if len(command) < 2:
+                return
+            subcommand = command[1]
+            read_only_ops = ['ps', 'images', 'image', 'inspect', 'container',
+                             'volume', 'port', 'info', 'version', 'healthcheck',
+                             'diff', 'top', 'logs', 'mount', 'stats', 'history',
+                             'search', 'pod', 'network', 'system']
+            if subcommand not in read_only_ops:
+                raise SecurityError(
+                    f"podman subcommand '{subcommand}' is not allowed. "
+                    f"Only read-only operations permitted."
+                )
+            # Sub-subcommands that mutate (podman image rm, volume prune, ...)
+            mutating = {'rm', 'rmi', 'prune', 'create', 'remove', 'import',
+                        'load', 'pull', 'push', 'build', 'tag', 'untag',
+                        'export', 'save', 'reset'}
+            if len(command) > 2 and command[2] in mutating:
+                raise SecurityError(
+                    f"podman {subcommand} {command[2]} modifies state and is "
+                    f"not allowed"
+                )
+
+        elif base_cmd == 'skopeo':
+            if len(command) < 2:
+                return
+            if command[1] not in ['inspect', 'list-tags']:
+                raise SecurityError(
+                    f"skopeo subcommand '{command[1]}' is not allowed. "
+                    f"Only inspect/list-tags permitted."
+                )
+
         # Ensure rpm is read-only
         elif base_cmd == 'rpm':
             cmd_str = ' '.join(command)
