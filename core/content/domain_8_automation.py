@@ -241,6 +241,13 @@ EXIT CODES:
             "Exit 0 for success, non-zero for errors",
             "Use $? to check if previous command succeeded",
             "bash -n script.sh to check syntax without running",
+            "A directory the task tells you to read from may legitimately be "
+            "EMPTY. That is not a hint that you set something up wrong — you "
+            "are graded on the script, not on it having produced output. Write "
+            "it, make it executable, run it, confirm it exits 0, move on.",
+            "Don't hardcode around the data you happen to see. 'Copy the "
+            "contents of /foo to /bar' means cp -a /foo/. /bar/ (or rsync), "
+            "which is correct whether /foo holds 0 files or 500.",
         ],
     },
 }

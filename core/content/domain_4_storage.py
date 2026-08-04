@@ -115,6 +115,14 @@ TOOLS:
             "partprobe updates kernel without reboot",
             "GPT allows more partitions and larger disks",
             "Check with lsblk after partitioning",
+            "Not every task states a size. 'Create a backup partition on "
+            "/dev/sda' with no number is a real exam phrasing — it means the "
+            "size is yours to choose, not that you missed a line. Pick "
+            "something sensible, leave room for later tasks on the same disk, "
+            "and move on.",
+            "When a size IS given, treat it as exact and check the tolerance: "
+            "'1GiB' is 1024MiB, not 1000MiB. Mixing the two is a common "
+            "silent failure.",
         ],
     },
     "lvm": {
@@ -181,7 +189,15 @@ full LVM stack and resize volumes.
             "Insufficient space in VG for LV",
         ],
         "exam_tricks": [
-            "Exam specifies exact size - watch units (M vs MB vs MiB)",
+            "When a size is given, watch the units (M vs MB vs MiB)",
+            "But do NOT assume every task gives one. Some are deliberately "
+            "open ('create a backup volume in vg01'), leaving the size to "
+            "your judgement — that is not a missing detail. Size it to fit "
+            "the VG with room for later tasks, then say so and move on.",
+            "Sized in extents rather than bytes? -l takes extents, -L takes "
+            "bytes: lvcreate -l 128 (extents) vs lvcreate -L 512M. "
+            "-l 100%FREE takes whatever is left, which is often the right "
+            "answer for an open-ended 'use the remaining space' task.",
             "May ask to extend existing LV (not create new)",
             "Filesystem resize is separate step (unless -r flag)",
             "Path is /dev/vgname/lvname or /dev/mapper/vgname-lvname",

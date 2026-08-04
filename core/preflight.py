@@ -109,6 +109,30 @@ def offer_task_packages(tasks):
     return filter_missing(needed)
 
 
+def report_environment():
+    """Print what OS this is and which volume groups are being protected.
+
+    Every distro-specific decision the simulator makes (which VG is the
+    candidate's practice storage, which disk is the OS, where grub.cfg
+    lives) is derived from this. Showing it at startup means a box we've
+    mis-identified is visible immediately, instead of surfacing later as a
+    task that behaved strangely. Best-effort — never fails the launch.
+    """
+    try:
+        from utils import system_id
+        findings = system_id.check_environment()
+    except Exception:
+        return
+
+    for level, message in findings:
+        if level == 'error':
+            print(fmt.error(f"\n! {message}"))
+        elif level == 'warn':
+            print(fmt.warning(f"\n! {message}"))
+        else:
+            print(fmt.dim(f"  {message}"))
+
+
 def warn_missing(missing=None):
     """Print a one-time warning listing missing packages and how to install
     them. No-op if nothing is missing (or rpm status is unknown)."""

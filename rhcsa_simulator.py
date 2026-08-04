@@ -290,6 +290,7 @@ def main():
     # the launch.
     try:
         from core import preflight
+        preflight.report_environment()
         preflight.warn_missing()
     except Exception:
         pass

@@ -772,7 +772,12 @@ def cleanup_practice_devices():
         return False
 
 
-_SYSTEM_VGS = {'rl', 'rl00', 'rhel', 'centos', 'fedora', 'almalinux', 'rocky'}
+# Static fallback names only. The authoritative answer to "is this the box's
+# own VG?" is utils.system_id.is_system_vg(), which probes the live mounts —
+# a name list silently mis-classified AlmaLinux's 'almalinux' VG as practice
+# storage for as long as nobody had added that name to it.
+from utils.system_id import KNOWN_SYSTEM_VG_NAMES as _SYSTEM_VGS
+from utils.system_id import is_system_vg
 
 # Bypass the LVM devices file so we can see/remove VGs on loop devices even when
 # their devices-file entries are missing or stale (the usual state after an
@@ -816,7 +821,7 @@ def _remove_stray_practice_vgs():
         vgs = set()
 
     for vg in vgs:
-        if vg in _SYSTEM_VGS:
+        if is_system_vg(vg):
             continue
         run(['vgchange', '-an', vg] + _LVM_NODEVFILE)
         run(['vgremove', '-ff', '-y', vg] + _LVM_NODEVFILE)
@@ -871,7 +876,7 @@ def _purge_loop_device(device):
         vg_res = subprocess.run(['pvs', '--noheadings', '-o', 'vg_name'] + members + _LVM_NODEVFILE,
                                 capture_output=True, text=True, timeout=10)
         for vg in {v.strip() for v in vg_res.stdout.splitlines() if v.strip()}:
-            if vg in _SYSTEM_VGS:
+            if is_system_vg(vg):
                 continue
             run(['vgchange', '-an', vg] + _LVM_NODEVFILE)
             run(['vgremove', '-ff', '-y', vg] + _LVM_NODEVFILE)
@@ -1119,17 +1124,16 @@ def get_practice_lv():
         
         if result.returncode != 0:
             return None, None
-        
-        # System VGs to skip
-        system_vgs = ['rl', 'rl00', 'rhel', 'centos', 'fedora']
-        
+
+        from utils.system_id import is_system_vg
+
         for line in result.stdout.strip().splitlines():
             parts = line.split()
             if len(parts) >= 2:
                 vg_name = parts[0]
                 lv_name = parts[1]
-                # Skip system VGs
-                if vg_name not in system_vgs:
+                # Never hand back an LV that belongs to the OS itself.
+                if not is_system_vg(vg_name):
                     return vg_name, lv_name
         
         return None, None
@@ -1152,15 +1156,15 @@ def get_practice_vg():
         
         if result.returncode != 0:
             return None
-        
-        # System VGs to skip
-        system_vgs = ['rl', 'rl00', 'rhel', 'centos', 'fedora']
-        
+
+        from utils.system_id import is_system_vg
+
         for line in result.stdout.strip().splitlines():
             parts = line.split()
             if len(parts) >= 1:
                 vg_name = parts[0]
-                if vg_name not in system_vgs:
+                # Never hand back the VG that backs the OS itself.
+                if not is_system_vg(vg_name):
                     return vg_name
 
         return None

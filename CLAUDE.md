@@ -33,6 +33,7 @@ python3 -m pytest -v            # Verbose output
 - `tasks/` — Task definitions (188 tasks, 25 categories, 8 domains)
 - `validators/` — Safe read-only system validators for each task type
 - `utils/` — AI feedback, progress reports, device detection
+- `utils/system_id.py` — distro + system-resource identification (see below)
 - `config/` — Settings and constants
 - `data/` — SQLite progress DB, bookmarks
 - `device/` — Loop device / practice disk setup
@@ -40,6 +41,16 @@ python3 -m pytest -v            # Verbose output
 ## Key Facts
 
 - **Target OS**: RHEL 10 / Rocky Linux 9-10 / AlmaLinux 9-10
+- **Never hardcode distro-specific names.** Anything that answers "is this the
+  box's own OS, or the candidate's practice storage?" goes through
+  `utils/system_id.py`, which *probes* — system VGs come from what actually
+  backs the mounted filesystems and active swap, the OS disk from what holds
+  `/` and `/boot`, the UEFI grub.cfg from a glob of `/boot/efi/EFI/*/`. The
+  static name lists in that module are fallbacks for unprobeable boxes only.
+  This existed as a hardcoded `{'rl','rl00','rhel','centos','fedora'}` set
+  copied into eight places; AlmaLinux's root VG is named `almalinux`, so on
+  Alma the simulator handed LVM tasks the system VG and considered the system
+  LVs cleanup fodder. Add detection, not another name.
 - **Requires root** — many validators run real system commands
 - **No internet needed** — fully offline; optional Claude AI feedback via `ANTHROPIC_API_KEY`
 - **Loop devices** — LVM tasks can use virtual disks (option 13 in menu) when no spare disk exists

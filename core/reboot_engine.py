@@ -162,16 +162,22 @@ class RebootEngine:
 
     def _check_grub(self):
         """Check that GRUB configuration is intact."""
-        # Check grub.cfg exists
+        # Check grub.cfg exists. On RHEL 9/10 the layout is unified and this
+        # is the canonical path for BIOS and UEFI alike.
         result = execute_safe(['test', '-f', '/boot/grub2/grub.cfg'])
-        if not result.success:
-            # Try EFI path
-            result = execute_safe(['test', '-f', '/boot/efi/EFI/redhat/grub.cfg'])
-            if not result.success:
-                result = execute_safe(['test', '-f', '/boot/efi/EFI/rocky/grub.cfg'])
-                if not result.success:
-                    return False
-        return True
+        if result.success:
+            return True
+
+        # Older/odd UEFI layouts keep it under a vendor directory named after
+        # the distro. That name was previously hardcoded to 'redhat' then
+        # 'rocky', so AlmaLinux (/boot/efi/EFI/almalinux) failed this check
+        # and every boot task on Alma reported a boot failure. Glob instead of
+        # guessing names one at a time.
+        from utils.system_id import efi_grub_configs
+        for cfg in efi_grub_configs():
+            if execute_safe(['test', '-f', cfg]).success:
+                return True
+        return False
 
     def get_reboot_report(self, reboot_result, tasks):
         """Generate a human-readable reboot simulation report."""

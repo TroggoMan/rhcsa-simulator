@@ -141,10 +141,24 @@ whatever state a fresh install puts it in (tasks manage state themselves):
 ./install.sh --no-populate   # skip the optional DNF-history setup
 ```
 
-The installer checks Python/OS, copies files to `/opt/rhcsa-simulator`, creates
-the `rhcsa-simulator` command in `/usr/local/bin`, and optionally builds some DNF
-transaction history for the package-history tasks. It auto-detects a
-non-interactive shell and runs unattended, so it won't stall in automation.
+The installer checks Python/OS, copies files to `/opt/rhcsa-simulator`, installs
+the `rhcsa-simulator` launcher, and optionally builds some DNF transaction
+history for the package-history tasks. It auto-detects a non-interactive shell
+and runs unattended, so it won't stall in automation.
+
+**Where the launcher goes:** `sudo` ignores your `PATH` and uses `secure_path`
+from `/etc/sudoers`, which on RHEL, AlmaLinux and Rocky is:
+
+```
+Defaults    secure_path = /sbin:/bin:/usr/sbin:/usr/bin
+```
+
+`/usr/local/bin` is not on it, so a launcher installed there works from a root
+shell but fails under `sudo` with `sudo: rhcsa-simulator: command not found`.
+The installer therefore checks `secure_path` and installs to `/usr/bin` when
+`/usr/local/bin` isn't searched, and to `/usr/local/bin` when it is. It prints
+the path it chose and verifies the command actually runs before reporting
+success.
 
 Run without installing: `sudo python3 rhcsa_simulator.py`.
 
@@ -422,6 +436,12 @@ Set `ANTHROPIC_API_KEY` to enable line-by-line command analysis. See
 ## Troubleshooting
 
 - **"must be run as root"** — launch with `sudo`.
+- **`sudo: rhcsa-simulator: command not found`** — you have an old install that
+  put the launcher in `/usr/local/bin`, which `sudo` does not search on
+  RHEL/Alma/Rocky (see [Installation](#installation)). Re-run `./install.sh`,
+  which relocates it and removes the stale copy. To confirm afterwards:
+  `sudo rhcsa-simulator --list-categories`. Until then, the full path works:
+  `sudo /usr/local/bin/rhcsa-simulator`.
 - **Storage tasks fail in a container** — loop devices/SELinux/systemd may be
   limited; use a real RHEL/Rocky/Alma VM.
 - **Messy state after a crash / want a clean box** — run **Setup → Reset

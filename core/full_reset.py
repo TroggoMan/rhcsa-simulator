@@ -336,11 +336,16 @@ _PROTECTED_PREFIXES = ('/proc', '/sys', '/run', '/dev', '/boot', '/usr',
 _PRACTICE_TARGET_PREFIXES = ('/mnt/', '/media/', '/srv/', '/data', '/export',
                              '/shares', '/misc/', '/autofs')
 
-# System volume groups whose LVs must never be unmounted (mirror helpers).
+# System volume groups whose LVs must never be unmounted. Detected from the
+# live mounts (see utils.system_id), with a static name list as fallback.
 try:
-    from utils.helpers import _SYSTEM_VGS as _SYS_VGS
-except Exception:  # pragma: no cover - fallback if helpers changes
+    from utils.system_id import KNOWN_SYSTEM_VG_NAMES as _SYS_VGS
+    from utils.system_id import is_system_vg
+except Exception:  # pragma: no cover - fallback if system_id is unavailable
     _SYS_VGS = {'rl', 'rl00', 'rhel', 'centos', 'fedora', 'almalinux', 'rocky'}
+
+    def is_system_vg(vg):
+        return not vg or vg.strip() in _SYS_VGS
 
 
 def _dm_vg(source):
@@ -361,7 +366,7 @@ def _is_practice_mount(target, source, fstype):
     if re.match(r'^/dev/loop\d+', source or ''):
         return True
     if (source or '').startswith(('/dev/mapper/', '/dev/dm-')):
-        return _dm_vg(source) not in _SYS_VGS
+        return not is_system_vg(_dm_vg(source))
     if target.startswith(_PRACTICE_TARGET_PREFIXES):
         return True
     return False
@@ -411,6 +416,21 @@ def unmount_practice_mounts(progress=_noop):
 # ── Practice swap + fstab ────────────────────────────────────────────────────
 
 def _system_swap(device):
+    """True for the swap the OS installed itself, which must survive a reset.
+
+    Name matching alone ('rhel' in the path) only recognised RHEL's own
+    layout; an AlmaLinux swap partition on /dev/sda3 looked like practice
+    swap and got torn out of fstab. Ask what the device actually is first.
+    """
+    try:
+        from utils.system_id import is_system_disk, vg_of_device, is_system_vg
+        vg = vg_of_device(device)
+        if vg:
+            return is_system_vg(vg)
+        if is_system_disk(device):
+            return True
+    except Exception:
+        pass
     return any(x in device for x in ('/dev/nvme', 'rhel', 'dm-'))
 
 

@@ -23,6 +23,8 @@ from typing import List, Dict, Optional, Set, Tuple, Any
 from enum import Enum
 from contextlib import contextmanager
 
+from utils.system_id import system_vgs as get_system_vgs, is_system_disk
+
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +117,7 @@ class DeviceManager:
 
     def _detect_practice_device(self) -> Optional[str]:
         """Detect the practice device (empty disk or practice PV)."""
-        system_vgs = {'rl', 'rl00', 'rhel', 'centos', 'fedora'}
+        system_vgs = get_system_vgs()
 
         try:
             # Use lsblk to find available disks
@@ -140,8 +142,10 @@ class DeviceManager:
                     if dtype != 'disk':
                         continue
 
-                    # Skip system disks (first disk is usually OS)
-                    if any(x in device for x in ['vda', 'sda', 'nvme0n1', 'xvda']):
+                    # Skip the disk(s) the OS actually lives on. Determined
+                    # from the live mounts, not from the device name — the OS
+                    # is not always on the first disk.
+                    if is_system_disk(device):
                         continue
 
                     # Skip CD-ROM/removable
@@ -267,7 +271,7 @@ class DeviceManager:
         Called after task validation to catch any untracked resources.
         Scans ALL non-system LVM, not just the practice device.
         """
-        system_vgs = {'rl', 'rl00', 'rhel', 'centos', 'fedora'}
+        system_vgs = get_system_vgs()
         device = self.get_practice_device()
 
         # Check for ALL PVs on non-system VGs (including loop devices)
@@ -297,7 +301,7 @@ class DeviceManager:
                 ['vgs', '--noheadings', '-o', 'vg_name'],
                 capture_output=True, text=True, timeout=5
             )
-            system_vgs = {'rl', 'rl00', 'rhel', 'centos', 'fedora'}
+            system_vgs = get_system_vgs()
             for line in result.stdout.strip().splitlines():
                 vg = line.strip()
                 if vg and vg not in system_vgs:
@@ -311,7 +315,7 @@ class DeviceManager:
                 ['lvs', '--noheadings', '-o', 'lv_name,vg_name'],
                 capture_output=True, text=True, timeout=5
             )
-            system_vgs = {'rl', 'rl00', 'rhel', 'centos', 'fedora'}
+            system_vgs = get_system_vgs()
             for line in result.stdout.strip().splitlines():
                 parts = line.split()
                 if len(parts) >= 2:
@@ -500,7 +504,7 @@ class DeviceManager:
             devices_to_clean.add(device)
 
         # Find loop devices that have non-system LVM
-        system_vgs = {'rl', 'rl00', 'rhel', 'centos', 'fedora'}
+        system_vgs = get_system_vgs()
         try:
             result = subprocess.run(
                 ['pvs', '--noheadings', '-o', 'pv_name,vg_name'],
@@ -519,6 +523,16 @@ class DeviceManager:
                         devices_to_clean.add(pv_name)
         except Exception:
             pass
+
+        # Last line of defence before pvremove/wipefs: drop anything that is
+        # (or sits on) a disk the OS lives on. The VG-name checks above should
+        # already have excluded these, but steps 5 and 6 below are
+        # unrecoverable, so they get an independent check.
+        protected = {dev for dev in devices_to_clean if is_system_disk(dev)}
+        if protected:
+            self.logger.warning(
+                f"Refusing to clean system device(s): {sorted(protected)}")
+            devices_to_clean -= protected
 
         self.logger.info(f"Devices to clean: {devices_to_clean}")
 
@@ -555,7 +569,7 @@ class DeviceManager:
             self.logger.debug(f"Mount cleanup: {e}")
 
         # 2. Deactivate any swap on non-system VGs
-        system_vgs = {'rl', 'rl00', 'rhel', 'centos', 'fedora'}
+        system_vgs = get_system_vgs()
         try:
             result = subprocess.run(
                 ['swapon', '--show=NAME', '--noheadings'],
@@ -600,7 +614,7 @@ class DeviceManager:
                 ['lvs', '--noheadings', '-o', 'lv_path,vg_name'],
                 capture_output=True, text=True, timeout=5
             )
-            system_vgs = {'rl', 'rl00', 'rhel', 'centos', 'fedora'}
+            system_vgs = get_system_vgs()
             for line in result.stdout.strip().splitlines():
                 parts = line.split()
                 if len(parts) >= 2:
@@ -620,7 +634,7 @@ class DeviceManager:
                 ['vgs', '--noheadings', '-o', 'vg_name'],
                 capture_output=True, text=True, timeout=5
             )
-            system_vgs = {'rl', 'rl00', 'rhel', 'centos', 'fedora'}
+            system_vgs = get_system_vgs()
             for line in result.stdout.strip().splitlines():
                 vg = line.strip()
                 if vg and vg not in system_vgs:
