@@ -223,9 +223,27 @@ firewalld would corrupt what their validators grade.
 ssh -L 8080:127.0.0.1:8080 root@<exam-vm>   # then browse to 127.0.0.1:8080
 ```
 
-The ticks are your own bookkeeping. Grading is unchanged: it still runs against
-real system state when you return to the terminal, so ticking "done" earns
-nothing on its own.
+The ticks are your own bookkeeping — they earn nothing on their own.
+
+**The panel also drives the session:**
+
+- **Submit for grading** — runs the real validators, same as pressing Enter in
+  the terminal. Whichever you use, grading happens once, on the exam host.
+- **Results** — score, pass/fail, and every check with its message and points,
+  per task.
+- **Dispute a result** — tick the checks you think are wrong, say why, and
+  file it. The report is written to `data/disputes/` **first**, so the evidence
+  survives even if submitting fails. If a GitHub issue is opened, the AI
+  reviewer posts its verdict as a comment *there* — verdicts do not come back
+  into the panel.
+- **Reset lab environment** — clears practice mounts, loop devices and
+  leftover task artifacts. Refused while an exam is in progress.
+
+**The URL contains a session token** (`?t=…`) and every request must carry it.
+That is not decoration: the panel binds `0.0.0.0` so a headless VM can be read
+from your laptop, and once it can reset the lab and open GitHub issues,
+"whoever can reach the port" stops being an acceptable authorisation rule. A
+fresh token is minted per exam. `--gui-bind 127.0.0.1` restricts it further.
 
 ### Terminal menu
 

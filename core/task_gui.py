@@ -42,8 +42,24 @@ panel must never become a way to score points.
 DESIGN
 ------
 - Stdlib only (http.server + json), consistent with the rest of the project.
-- Read-mostly. The panel shows state and records ticks; it never validates,
-  never mutates the system, and never touches task state the grader reads.
+- The panel drives the session: submit for grading, read the per-check
+  results, dispute a check, reset the lab. Those are real actions on a real
+  box, which is why every request is authenticated (see below) — an earlier
+  version of this panel was read-only and could afford not to be.
+
+AUTHENTICATION
+--------------
+A random token is minted per session and embedded in the URL the exam
+prints. Every request must carry it, as ?t= or an X-Panel-Token header;
+anything else gets 403. This exists because the panel binds 0.0.0.0 by
+default so a headless exam VM can be read from a laptop — and once the
+panel can reset the lab or file a GitHub issue, "anyone who can reach the
+port" is no longer an acceptable authorisation rule. The token is compared
+with secrets.compare_digest.
+
+Reset is additionally guarded server-side: it refuses while an exam is
+running unless the caller passes confirm=True, so a stray request cannot
+wipe a session in progress.
 - Marks live server-side so the view survives a page reload and is shared
   across windows (laptop and phone show the same ticks).
 - The page holds no state worth losing: it polls /api/state and re-renders.
@@ -53,6 +69,7 @@ DESIGN
 
 import json
 import logging
+import secrets
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -244,6 +261,17 @@ def _local_addresses(port):
     return urls
 
 
+def _json_body(handler):
+    """Parse a JSON request body. Returns {} on anything unreadable."""
+    try:
+        length = int(handler.headers.get('Content-Length') or 0)
+        if length <= 0:
+            return {}
+        return json.loads(handler.rfile.read(length) or b'{}')
+    except (ValueError, TypeError, OSError):
+        return {}
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = 'RHCSATaskPanel/1.0'
 
@@ -264,8 +292,47 @@ class _Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # browser navigated away mid-response
 
+    def _authorized(self):
+        """Every request must carry the session token.
+
+        The panel binds 0.0.0.0 so a headless VM can be read from a laptop.
+        Now that it can submit for grading, file a GitHub issue and reset the
+        lab, "can reach the port" is not an acceptable authorisation rule.
+        """
+        expected = getattr(self.server, 'token', None)
+        if not expected:
+            return True                      # token disabled (tests)
+        supplied = self.headers.get('X-Panel-Token') or ''
+        if not supplied and '?' in self.path:
+            from urllib.parse import parse_qs, urlparse
+            supplied = (parse_qs(urlparse(self.path).query).get('t') or [''])[0]
+        return secrets.compare_digest(str(supplied), str(expected))
+
+    def _deny(self):
+        self._send(403, '{"error":"invalid or missing panel token"}',
+                   'application/json')
+
+    def _action(self, name, *args, **kwargs):
+        """Call a controller method, returning (status_code, payload).
+
+        A panel wired without a controller (or to one missing this action)
+        answers 501 rather than pretending the action happened.
+        """
+        controller = getattr(self.server, 'controller', None)
+        fn = getattr(controller, name, None) if controller else None
+        if fn is None:
+            return 501, {'error': f'{name} is not available in this session'}
+        try:
+            return 200, fn(*args, **kwargs)
+        except Exception as e:                        # controller bugs
+            logger.warning("panel action %s failed: %s", name, e)
+            return 500, {'error': str(e)}
+
     def do_GET(self):
         path = self.path.split('?', 1)[0].rstrip('/') or '/'
+        if not self._authorized():
+            return self._deny()
+
         if path == '/':
             self._send(200, PAGE_HTML, 'text/html; charset=utf-8')
         elif path == '/api/state':
@@ -277,39 +344,70 @@ class _Handler(BaseHTTPRequestHandler):
                          'done_count': 0, 'revisit_count': 0,
                          'remaining_seconds': None, 'error': 'state unavailable'}
             self._send(200, json.dumps(state), 'application/json')
+        elif path == '/api/disputes':
+            code, payload = self._action('list_disputes')
+            self._send(code, json.dumps(payload), 'application/json')
         else:
             self._send(404, '{"error":"not found"}', 'application/json')
 
     def do_POST(self):
         path = self.path.split('?', 1)[0].rstrip('/') or '/'
-        if path != '/api/mark':
+        if not self._authorized():
+            return self._deny()
+
+        if path == '/api/mark':
+            payload = _json_body(self)
+            try:
+                state = set_mark(payload.get('id'), payload.get('field'),
+                                 bool(payload.get('value')))
+            except ValueError:
+                self._send(400, '{"error":"unknown mark"}', 'application/json')
+                return
+            self._send(200, json.dumps({'id': payload.get('id'),
+                                        'marks': state}), 'application/json')
+
+        elif path == '/api/validate':
+            # Submit for grading. The controller queues it for the main
+            # thread — validators run real commands and touch shared session
+            # state, so they must not run on an HTTP worker thread.
+            code, payload = self._action('request_validate')
+            self._send(code, json.dumps(payload), 'application/json')
+
+        elif path == '/api/dispute':
+            body = _json_body(self)
+            code, payload = self._action(
+                'file_dispute',
+                task_id=body.get('task_id'),
+                check_names=body.get('checks') or [],
+                argument=body.get('argument') or '',
+                submit=bool(body.get('submit', True)),
+            )
+            self._send(code, json.dumps(payload), 'application/json')
+
+        elif path == '/api/reset-lab':
+            body = _json_body(self)
+            code, payload = self._action('reset_lab',
+                                         confirm=bool(body.get('confirm')))
+            self._send(code, json.dumps(payload), 'application/json')
+
+        else:
             self._send(404, '{"error":"not found"}', 'application/json')
-            return
-        try:
-            length = int(self.headers.get('Content-Length') or 0)
-            payload = json.loads(self.rfile.read(length) or b'{}')
-            task_id = payload.get('id')
-            field = payload.get('field')
-            value = bool(payload.get('value'))
-        except (ValueError, TypeError, OSError):
-            self._send(400, '{"error":"bad request"}', 'application/json')
-            return
-        try:
-            state = set_mark(task_id, field, value)
-        except ValueError:
-            self._send(400, '{"error":"unknown mark"}', 'application/json')
-            return
-        self._send(200, json.dumps({'id': task_id, 'marks': state}),
-                   'application/json')
 
 
 class TaskPanel:
     """Background HTTP server showing the current exam's task sheet."""
 
-    def __init__(self, state_provider, port=DEFAULT_PORT, bind='0.0.0.0'):
+    def __init__(self, state_provider, controller=None, port=DEFAULT_PORT,
+                 bind='0.0.0.0', token=None):
         self.state_provider = state_provider
+        # Optional: object exposing request_validate / file_dispute /
+        # reset_lab / list_disputes. Without it those endpoints answer 501.
+        self.controller = controller
         self.port = port
         self.bind = bind
+        # Pass token='' to disable auth (tests only). Otherwise every request
+        # must present this value.
+        self.token = secrets.token_urlsafe(16) if token is None else token
         self._httpd = None
         self._thread = None
 
@@ -329,6 +427,8 @@ class TaskPanel:
                            self.bind, self.port, e)
             return []
         httpd.state_provider = self.state_provider
+        httpd.controller = self.controller
+        httpd.token = self.token
         httpd.daemon_threads = True
         self._httpd = httpd
         self._thread = threading.Thread(target=httpd.serve_forever,
@@ -337,12 +437,20 @@ class TaskPanel:
         return self.urls()
 
     def urls(self):
+        """Reachable URLs, each carrying the session token.
+
+        The token is in the URL rather than a separate secret to type,
+        because an exam candidate should be able to click once and start.
+        """
         if not self.running:
             return []
         port = self._httpd.server_address[1]
+        suffix = ('?t=%s' % self.token) if self.token else ''
         if self.bind in ('127.0.0.1', 'localhost'):
-            return ['http://127.0.0.1:%d/' % port]
-        return _local_addresses(port)
+            bases = ['http://127.0.0.1:%d/' % port]
+        else:
+            bases = _local_addresses(port)
+        return [b + suffix for b in bases]
 
     def stop(self):
         if not self.running:
@@ -357,7 +465,8 @@ class TaskPanel:
             self._thread = None
 
 
-def start_for_session(session, port=DEFAULT_PORT, bind='0.0.0.0'):
+def start_for_session(session, controller=None, port=DEFAULT_PORT,
+                      bind='0.0.0.0'):
     """Start a panel backed by a live ExamSession. Never raises."""
     def provider():
         remaining = None
@@ -366,10 +475,16 @@ def start_for_session(session, port=DEFAULT_PORT, bind='0.0.0.0'):
             remaining = exam_clock.remaining_seconds()
         except Exception:
             pass
-        return build_state(getattr(session, 'tasks', []), remaining)
+        state = build_state(getattr(session, 'tasks', []), remaining)
+        # Grading state lives on the session so the panel and the terminal
+        # always agree about what has been submitted and what it scored.
+        state['status'] = getattr(session, 'panel_status', 'in_progress')
+        state['results'] = getattr(session, 'panel_results', None)
+        state['can_control'] = controller is not None
+        return state
 
     try:
-        panel = TaskPanel(provider, port=port, bind=bind)
+        panel = TaskPanel(provider, controller=controller, port=port, bind=bind)
         urls = panel.start()
         return (panel, urls) if urls else (None, [])
     except Exception as e:
@@ -548,6 +663,66 @@ PAGE_HTML = """<!doctype html>
   kbd { font:inherit; font-size:11px; padding:1.5px 6px; border-radius:5px;
         background:var(--panel2); border:1px solid var(--edge2); color:var(--dim); }
 
+  /* actions + results */
+  .actions { display:flex; flex-direction:column; gap:8px; }
+  .btn {
+    font:inherit; font-size:13.5px; padding:10px 14px; border-radius:10px;
+    border:1px solid var(--edge2); background:var(--panel); color:var(--ink);
+    cursor:pointer; text-align:center; transition:background .12s,border-color .12s;
+  }
+  .btn:hover:not(:disabled) { border-color:var(--accent); background:var(--panel2); }
+  .btn:disabled { opacity:.45; cursor:default; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.primary:hover:not(:disabled) { filter:brightness(1.08); background:var(--accent); }
+  .btn.danger { color:var(--crit); border-color:color-mix(in srgb,var(--crit) 45%,transparent); }
+  .btn.danger:hover:not(:disabled) { background:color-mix(in srgb,var(--crit) 12%,transparent);
+                                     border-color:var(--crit); }
+
+  .banner {
+    border-radius:12px; padding:13px 16px; margin-bottom:14px; font-size:14px;
+    border:1px solid var(--edge); background:var(--panel);
+  }
+  .banner.ok { border-color:var(--done); background:color-mix(in srgb,var(--done) 12%,transparent); }
+  .banner.bad { border-color:var(--crit); background:color-mix(in srgb,var(--crit) 12%,transparent); }
+  .banner.busy { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); }
+  .banner b { display:block; font-size:16px; margin-bottom:3px; }
+
+  .scoreline { display:flex; align-items:baseline; gap:12px; margin-bottom:14px; }
+  .scorebig { font-size:30px; font-weight:660; font-variant-numeric:tabular-nums; }
+  .verdict { font-size:14px; font-weight:600; padding:3px 12px; border-radius:99px; }
+  .verdict.pass { color:var(--done); background:color-mix(in srgb,var(--done) 15%,transparent); }
+  .verdict.fail { color:var(--crit); background:color-mix(in srgb,var(--crit) 15%,transparent); }
+
+  .check { display:flex; gap:10px; padding:7px 0; font-size:14px;
+           border-top:1px solid var(--edge); }
+  .check:first-child { border-top:0; }
+  .check .mark { width:16px; flex:0 0 16px; font-weight:700; }
+  .check.ok .mark { color:var(--done); }
+  .check.no .mark { color:var(--crit); }
+  .check .msg { flex:1; }
+  .check .pts { color:var(--faint); font-variant-numeric:tabular-nums; font-size:12.5px; }
+
+  /* dialog */
+  .scrim { position:fixed; inset:0; background:rgba(0,0,0,.55); display:grid;
+           place-items:center; padding:20px; z-index:20; }
+  .dialog {
+    background:var(--panel); border:1px solid var(--edge2); border-radius:14px;
+    padding:22px 24px; max-width:620px; width:100%; max-height:86vh; overflow:auto;
+  }
+  .dialog h3 { margin:0 0 6px; font-size:17px; }
+  .dialog p { color:var(--dim); font-size:13.5px; margin:0 0 14px; }
+  .dialog label.row { display:flex; gap:9px; align-items:flex-start; padding:7px 0;
+                      font-size:13.5px; cursor:pointer; }
+  textarea {
+    width:100%; min-height:110px; font:inherit; font-size:14px; padding:11px 13px;
+    border-radius:10px; border:1px solid var(--edge2); background:var(--panel2);
+    color:var(--ink); resize:vertical;
+  }
+  textarea:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .dialog .foot { display:flex; gap:9px; justify-content:flex-end; margin-top:16px; }
+  .note { font-size:12.5px; color:var(--faint); line-height:1.55; margin-top:10px; }
+  .note code { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; }
+
   .empty { padding:80px 0; text-align:center; color:var(--faint); }
   .empty b { display:block; font-size:16px; color:var(--dim); margin-bottom:6px;
              font-weight:550; }
@@ -582,15 +757,22 @@ PAGE_HTML = """<!doctype html>
         <div class="stat"><b id="nleft">0</b><span>left</span></div>
       </div>
     </div>
+    <div class="actions">
+      <button class="btn primary" id="submit">Submit for grading</button>
+      <button class="btn danger" id="resetlab">Reset lab environment</button>
+    </div>
+
     <div class="side-foot">
-      <div class="side-note">Ticks here are your own notes. Grading runs
-        against real system state when you return to the terminal.</div>
+      <div class="side-note">Ticks are your own notes — they do not affect
+        grading. Submitting runs the real validators against this system.</div>
       <button id="theme"><span id="themeicon">&#9789;</span><span id="themetext">Dark</span></button>
     </div>
   </aside>
 
   <main>
+    <div id="banner"></div>
     <div class="topbar" id="topbar"></div>
+    <div id="results"></div>
     <div id="list">
       <div class="empty"><b>Waiting for an exam to start</b>
         Start one in the terminal &mdash; this panel follows it.</div>
@@ -598,15 +780,41 @@ PAGE_HTML = """<!doctype html>
     <div class="keys" id="keys"></div>
   </main>
 </div>
+<div id="modal"></div>
 
 <script>
 (function () {
   var state = { tasks: [] };
   var open = {};             // task id -> drawer expanded
+  var openResult = {};       // task id -> result drawer expanded
   var sel = 0;               // keyboard cursor, 0-based
   var localRemaining = null; // ticks locally between polls
+  var busy = false;          // an action is in flight
+  var flash = null;          // {kind, title, body} shown as a banner
 
   var $ = function (id) { return document.getElementById(id); };
+
+  // The session token arrives in the URL the exam printed. Keep it out of
+  // later requests' query strings by sending it as a header instead.
+  var TOKEN = (new URLSearchParams(location.search)).get('t') || '';
+
+  function api(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({'Content-Type': 'application/json'},
+                                 opts.headers || {});
+    if (TOKEN) opts.headers['X-Panel-Token'] = TOKEN;
+    return fetch(path, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) {
+        if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+        return body;
+      });
+    });
+  }
+
+  function setFlash(kind, title, body) {
+    flash = { kind: kind, title: title, body: body || '' };
+    render();
+  }
 
   // ── theme ───────────────────────────────────────────────────────────
   // Follows the OS until the viewer picks one, then remembers the choice.
@@ -663,6 +871,70 @@ PAGE_HTML = """<!doctype html>
                             : localRemaining <= 900 ? ' warn' : '');
   }
 
+  function renderBanner() {
+    var el = $('banner');
+    if (flash) {
+      el.innerHTML = '<div class="banner ' + flash.kind + '"><b>'
+        + esc(flash.title) + '</b>' + esc(flash.body) + '</div>';
+      return;
+    }
+    if (state.status === 'validating') {
+      el.innerHTML = '<div class="banner busy"><b>Validating…</b>'
+        + 'Running the checks against this system. Watch the terminal for '
+        + 'progress; results appear here when it finishes.</div>';
+      return;
+    }
+    el.innerHTML = '';
+  }
+
+  function renderResults() {
+    var el = $('results');
+    var r = state.results;
+    if (!r) { el.innerHTML = ''; return; }
+
+    var head = ''
+      + '<div class="scoreline">'
+      +   '<span class="scorebig">' + r.score + ' / ' + r.max_score + '</span>'
+      +   '<span class="verdict ' + (r.passed ? 'pass' : 'fail') + '">'
+      +     (r.passed ? 'PASS' : 'FAIL') + ' \u00b7 ' + r.percentage + '%</span>'
+      + '</div>'
+      + '<div class="keys" style="margin:0 0 12px">Open a task to see every '
+      +   'check and dispute a result you think is wrong.</div>';
+
+    var rows = (r.tasks || []).map(function (t, i) {
+      var isOpen = !!openResult[t.task_id];
+      var checks = (t.checks || []).map(function (c) {
+        return '<div class="check ' + (c.passed ? 'ok' : 'no') + '">'
+          + '<span class="mark">' + (c.passed ? '\u2713' : '\u2717') + '</span>'
+          + '<span class="msg">' + esc(c.message || c.name) + '</span>'
+          + '<span class="pts">' + c.points + '/' + c.max_points + '</span>'
+          + '</div>';
+      }).join('');
+
+      return ''
+        + '<div class="item' + (isOpen ? ' open' : '') + '" data-r="' + i + '">'
+        +   '<div class="row" data-act="rtoggle">'
+        +     '<span class="chev"></span>'
+        +     '<span class="label">Task ' + (i + 1 < 10 ? '0' : '') + (i + 1) + '</span>'
+        +     '<span class="cat">' + esc(t.category) + '</span>'
+        +     '<span class="rowpts">' + t.score + '/' + t.max_score + ' pts</span>'
+        +     '<span class="verdict ' + (t.passed ? 'pass' : 'fail') + '">'
+        +       (t.passed ? 'PASS' : 'FAIL') + '</span>'
+        +   '</div>'
+        +   '<div class="drawer">'
+        +     '<div class="desc mono">' + esc(t.description) + '</div>'
+        +     '<div style="margin-top:14px">' + checks + '</div>'
+        +     '<div class="nav">'
+        +       '<button class="btn" data-act="dispute" data-task="'
+        +         esc(t.task_id) + '">Dispute this result</button>'
+        +     '</div>'
+        +   '</div>'
+        + '</div>';
+    }).join('');
+
+    el.innerHTML = head + rows;
+  }
+
   function render() {
     var ts = state.tasks || [];
     var done = state.done_count || 0;
@@ -670,6 +942,29 @@ PAGE_HTML = """<!doctype html>
     $('nrev').textContent = state.revisit_count || 0;
     $('nleft').textContent = Math.max(0, ts.length - done);
     $('progfill').style.width = ts.length ? (done / ts.length * 100) + '%' : '0%';
+
+    renderBanner();
+    renderResults();
+
+    var graded = state.status === 'complete';
+    var sb = $('submit');
+    if (sb) {
+      sb.disabled = busy || graded || state.status === 'validating' || !ts.length
+                    || !state.can_control;
+      sb.textContent = graded ? 'Graded' :
+        (state.status === 'validating' ? 'Validating\u2026' : 'Submit for grading');
+    }
+    var rb = $('resetlab');
+    if (rb) rb.disabled = busy || !state.can_control;
+
+    if (graded) {
+      // Results carry the task text and are numbered the same way, so
+      // keeping the question sheet below them just showed everything twice.
+      $('topbar').innerHTML = '';
+      $('keys').innerHTML = '';
+      $('list').innerHTML = '';
+      return;
+    }
 
     if (!ts.length) {
       $('topbar').innerHTML = '';
@@ -733,11 +1028,10 @@ PAGE_HTML = """<!doctype html>
     state.done_count = ts.filter(function (x) { return x.done; }).length;
     state.revisit_count = ts.filter(function (x) { return x.revisit; }).length;
     render();
-    fetch('/api/mark', {
+    api('/api/mark', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: t.id, field: field, value: value })
-    }).catch(function () { /* panel is advisory; ignore */ });
+    }).catch(function () { /* marks are advisory; ignore */ });
   }
 
   function toggle(i) {
@@ -756,8 +1050,113 @@ PAGE_HTML = """<!doctype html>
     if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
+  // ── actions ─────────────────────────────────────────────────────────
+
+  function submitForGrading() {
+    if (busy) return;
+    if (!confirm('Submit for grading?\\n\\nThe validators will run against '
+                 + 'this system now. You cannot un-submit.')) return;
+    busy = true;
+    render();
+    api('/api/validate', { method: 'POST' })
+      .then(function (res) {
+        state.status = res.status || 'validating';
+        setFlash('busy', 'Submitted',
+                 'Grading is running on the exam host. Results appear here '
+                 + 'when it finishes.');
+      })
+      .catch(function (e) { setFlash('bad', 'Could not submit', e.message); })
+      .then(function () { busy = false; render(); });
+  }
+
+  function resetLab() {
+    if (busy) return;
+    if (!confirm('Reset the lab environment?\\n\\nThis clears practice mounts, '
+                 + 'loop devices and leftover task artifacts. It is refused '
+                 + 'while an exam is in progress.')) return;
+    busy = true;
+    render();
+    api('/api/reset-lab', { method: 'POST',
+                            body: JSON.stringify({ confirm: true }) })
+      .then(function (res) {
+        if (res.ok) setFlash('ok', 'Lab reset', res.message || '');
+        else setFlash('bad', 'Reset refused', res.error || '');
+      })
+      .catch(function (e) { setFlash('bad', 'Reset failed', e.message); })
+      .then(function () { busy = false; render(); });
+  }
+
+  function closeModal() { $('modal').innerHTML = ''; }
+
+  function openDispute(taskId) {
+    var r = state.results || {};
+    var task = (r.tasks || []).filter(function (t) {
+      return t.task_id === taskId; })[0];
+    if (!task) return;
+
+    var rows = (task.checks || []).map(function (c, i) {
+      return '<label class="row"><input type="checkbox" data-check="'
+        + esc(c.name) + '"' + (c.passed ? '' : ' checked') + '>'
+        + '<span>' + (c.passed ? '\u2713' : '\u2717') + ' '
+        + esc(c.message || c.name) + '</span></label>';
+    }).join('');
+
+    $('modal').innerHTML = ''
+      + '<div class="scrim" data-act="scrim"><div class="dialog">'
+      +   '<h3>Dispute a checker result</h3>'
+      +   '<p>' + esc(task.task_id) + ' \u00b7 scored ' + task.score + '/'
+      +     task.max_score + '. Tick the checks you believe are wrong.</p>'
+      +   rows
+      +   '<p style="margin:14px 0 6px">Why is the checker wrong? Be specific '
+      +     '\u2014 the reviewer reads this against the captured evidence.</p>'
+      +   '<textarea id="disputearg" placeholder="e.g. The check greps for '
+      +     'ext4 but the task asked for xfs, so a correct answer fails."></textarea>'
+      +   '<label class="row" style="margin-top:10px">'
+      +     '<input type="checkbox" id="disputesubmit" checked>'
+      +     '<span>Open a GitHub issue as well as saving locally</span></label>'
+      +   '<div class="note">The report is written to <code>data/disputes/</code> '
+      +     'first, so the evidence survives even if submitting fails. If an '
+      +     'issue is opened, the AI reviewer posts its verdict as a comment '
+      +     'there \u2014 it does not come back into this panel.</div>'
+      +   '<div class="foot">'
+      +     '<button class="btn" data-act="cancel">Cancel</button>'
+      +     '<button class="btn primary" data-act="filedispute" data-task="'
+      +       esc(taskId) + '">File dispute</button>'
+      +   '</div>'
+      + '</div></div>';
+  }
+
+  function fileDispute(taskId) {
+    var boxes = document.querySelectorAll('[data-check]');
+    var checks = [];
+    for (var i = 0; i < boxes.length; i++) {
+      if (boxes[i].checked) checks.push(boxes[i].getAttribute('data-check'));
+    }
+    var argument = ($('disputearg') || {}).value || '';
+    var submit = ($('disputesubmit') || {}).checked;
+
+    if (!checks.length) { alert('Tick at least one check to dispute.'); return; }
+    if (!argument.trim()) { alert('Explain why the checker is wrong.'); return; }
+
+    busy = true;
+    closeModal();
+    render();
+    api('/api/dispute', {
+      method: 'POST',
+      body: JSON.stringify({ task_id: taskId, checks: checks,
+                             argument: argument, submit: submit })
+    }).then(function (res) {
+      if (!res.ok) { setFlash('bad', 'Dispute not filed', res.error || ''); return; }
+      var body = 'Saved to ' + res.saved_to + '. ' + (res.message || '');
+      if (res.issue_url) body += ' ' + res.issue_url;
+      setFlash(res.submitted ? 'ok' : 'busy', 'Dispute filed', body);
+    }).catch(function (e) {
+      setFlash('bad', 'Dispute failed', e.message);
+    }).then(function () { busy = false; render(); });
+  }
+
   function poll() {
-    fetch('/api/state').then(function (r) { return r.json(); }).then(function (s) {
+    api('/api/state').then(function (s) {
       state = s;
       if (typeof s.remaining_seconds === 'number') localRemaining = s.remaining_seconds;
       else if (s.remaining_seconds === null) localRemaining = null;
@@ -767,6 +1166,33 @@ PAGE_HTML = """<!doctype html>
   }
 
   document.addEventListener('click', function (e) {
+    if (e.target.id === 'submit') { submitForGrading(); return; }
+    if (e.target.id === 'resetlab') { resetLab(); return; }
+
+    var act = e.target.getAttribute && e.target.getAttribute('data-act');
+    if (act === 'cancel' || act === 'scrim') {
+      if (act === 'scrim' && e.target !== e.currentTarget
+          && !e.target.classList.contains('scrim')) return;
+      closeModal();
+      return;
+    }
+    if (act === 'filedispute') {
+      fileDispute(e.target.getAttribute('data-task'));
+      return;
+    }
+    if (act === 'dispute') {
+      openDispute(e.target.getAttribute('data-task'));
+      return;
+    }
+
+    var rhost = e.target.closest('[data-r]');
+    if (rhost && e.target.closest('[data-act="rtoggle"]')) {
+      var ri = parseInt(rhost.getAttribute('data-r'), 10);
+      var rt = ((state.results || {}).tasks || [])[ri];
+      if (rt) { openResult[rt.task_id] = !openResult[rt.task_id]; render(); }
+      return;
+    }
+
     if (e.target.id === 'toggleall') {
       var ts = state.tasks || [];
       var anyOpen = ts.some(function (t) { return open[t.id]; });
@@ -791,6 +1217,10 @@ PAGE_HTML = """<!doctype html>
   });
 
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeModal(); return; }
+    // Never steal keys while the candidate is typing their dispute.
+    if (e.target && (e.target.tagName === 'TEXTAREA'
+                     || e.target.tagName === 'INPUT')) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     var t = (state.tasks || [])[sel];
     var k = e.key;

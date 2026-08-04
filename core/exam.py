@@ -44,6 +44,11 @@ class ExamSession:
         self.gui_port = gui_port
         self.gui_bind = gui_bind
         self.panel = None
+        self.controller = None
+        # Shared with the browser panel so both views agree on where the
+        # session is: in_progress -> validating -> complete.
+        self.panel_status = 'in_progress'
+        self.panel_results = None
         self.timer_enabled = timer_enabled
         self.duration_minutes = duration_minutes or settings.DEFAULT_EXAM_DURATION
         self.reboot_simulation = reboot_simulation if reboot_simulation is not None else settings.REBOOT_SIMULATION
@@ -151,9 +156,12 @@ class ExamSession:
         if not self.gui_port:
             return
         from core import task_gui
+        from core.panel_control import PanelController
         task_gui.clear_marks()
+        self.controller = PanelController(self)
         self.panel, urls = task_gui.start_for_session(
-            self, port=self.gui_port, bind=self.gui_bind)
+            self, controller=self.controller,
+            port=self.gui_port, bind=self.gui_bind)
         if not urls:
             print(fmt.warning(
                 f"\nTask panel could not start on port {self.gui_port} "
@@ -434,6 +442,16 @@ class ExamSession:
 
         passed = percentage >= (settings.EXAM_PASS_THRESHOLD * 100)
 
+        # Publish to the panel before printing, so the browser view updates
+        # while the terminal report is still scrolling past.
+        try:
+            from core.panel_control import serialize_results
+            self.panel_results = serialize_results(
+                self.tasks, validation_results, total_score, max_score, passed)
+            self.panel_status = 'complete'
+        except Exception as e:
+            logger.debug("could not publish results to panel: %s", e)
+
         # Display final report
         duration = (self.end_time - self.start_time).total_seconds()
         self._display_final_report(
@@ -603,6 +621,49 @@ def _select_reboot_simulation():
             print(fmt.error("Invalid selection"))
 
 
+def _wait_for_submit(session):
+    """Block until the candidate submits, from the terminal or the panel.
+
+    input() cannot be interrupted, so it runs on its own thread and both
+    paths converge on one Event. Grading itself always happens back here on
+    the main thread — the panel only ever requests it, so there is exactly
+    one grader no matter which button was pressed.
+    """
+    import threading
+
+    done = threading.Event()
+    prompt = "\nPress Enter when you're ready to validate your work"
+    controller = getattr(session, 'controller', None)
+    if controller is not None:
+        prompt += " (or press Submit in the task panel)"
+    prompt += "..."
+
+    # Ctrl-C and EOF must still abort the exam. input() now runs off the main
+    # thread, so its exception cannot propagate on its own — capture it and
+    # re-raise here, or a candidate pressing Ctrl-C would be graded instead of
+    # quitting.
+    raised = {}
+
+    def _await_enter():
+        try:
+            input(prompt)
+        except BaseException as exc:        # EOFError, KeyboardInterrupt
+            raised['exc'] = exc
+        done.set()
+
+    reader = threading.Thread(target=_await_enter, daemon=True)
+    reader.start()
+
+    while not done.is_set():
+        if controller is not None and controller.submit_requested.is_set():
+            print(fmt.info("\nSubmitted from the task panel — validating..."))
+            return
+        done.wait(0.3)
+
+    if 'exc' in raised:
+        raise raised['exc']
+
+
 def run_exam_mode(gui_port=None, gui_bind='0.0.0.0'):
     """Run exam mode (convenience function)."""
     task_count = _select_exam_task_count()
@@ -615,7 +676,7 @@ def run_exam_mode(gui_port=None, gui_bind='0.0.0.0'):
         session._stop_task_panel()
         return None
 
-    input("\nPress Enter when you're ready to validate your work...")
+    _wait_for_submit(session)
 
     try:
         # No teardown on any exit path — the environment persists for review
