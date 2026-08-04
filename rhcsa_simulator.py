@@ -58,8 +58,8 @@ Quick Start Examples:
     parser.add_argument('--gui', nargs='?', const=8080, type=int, metavar='PORT',
                         help='Serve the exam task sheet to a browser window '
                              '(default port 8080), the way the real exam '
-                             'presents it — collapsed checklist with '
-                             'done/revisit ticks')
+                             'presents it — dropdown task selector with '
+                             'done/revisit ticks and the countdown')
     parser.add_argument('--gui-bind', default='0.0.0.0', metavar='ADDR',
                         help='Address the task panel listens on '
                              '(default 0.0.0.0, so a headless exam VM can be '
