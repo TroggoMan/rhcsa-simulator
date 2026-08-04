@@ -167,6 +167,27 @@ class ExamSession:
             print(fmt.dim("  (Unauthenticated and reachable from your LAN. It "
                           "serves exam questions only — no shell, no control "
                           "of this box.)"))
+            # A stock RHEL/Alma box has firewalld up with nothing open, so
+            # the LAN URL above simply won't connect from a laptop. Say so
+            # rather than letting the candidate debug it mid-exam. We never
+            # open the port ourselves — this simulator grades firewall tasks,
+            # and editing firewalld here would corrupt what they check.
+            try:
+                from core import task_gui
+                if task_gui.firewall_blocks(self.gui_port):
+                    print(fmt.warning(
+                        f"  firewalld is blocking port {self.gui_port}, so only "
+                        f"the 127.0.0.1 URL will work from this box."))
+                    print(fmt.dim(
+                        f"    Reach it from another machine either by "
+                        f"forwarding it over SSH (leaves the firewall alone):\n"
+                        f"      ssh -L {self.gui_port}:127.0.0.1:"
+                        f"{self.gui_port} root@<this-box>\n"
+                        f"    or by opening the port yourself. Note that this "
+                        f"exam may contain firewall tasks, so the simulator "
+                        f"will not change firewalld for you."))
+            except Exception:
+                pass
 
     def _stop_task_panel(self):
         if self.panel:

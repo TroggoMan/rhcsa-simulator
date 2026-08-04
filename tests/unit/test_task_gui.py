@@ -291,10 +291,86 @@ def test_lab_machine_tasks_report_a_different_host(tasks, monkeypatch):
     assert len(hosts) == 2, hosts
 
 
-def test_dropdown_labels_do_not_leak_the_task(panel):
-    """Entries are generic like the real sheet — the list must not let you
-    triage without opening each task."""
+def test_row_labels_do_not_leak_the_task(panel):
+    """Collapsed rows are generic like the real sheet — the list must not
+    let you triage without opening each task."""
     _, base = panel
     _, body = _get(base, '/')
-    assert "'Task ' + (x.n < 10 ? '0' : '')" in body
+    assert 'class="label">Task ' in body
     assert 'Create a 1GiB logical volume' not in body  # comes from /api/state
+
+
+# ── reachable-URL advertising ───────────────────────────────────────────────
+
+def test_documentation_range_addresses_are_not_advertised(monkeypatch):
+    """The simulator's own networking tasks put TEST-NET-1 addresses on dummy
+    interfaces, and this used to advertise http://192.0.2.10:8080/ as the URL
+    to open."""
+    monkeypatch.setattr(task_gui, '_probe', lambda cmd, timeout=5: (
+        '1: lo    inet 127.0.0.1/8 scope host lo\n'
+        '2: ens160    inet 192.168.21.128/24 scope global ens160\n'
+        '3: dummy0    inet 192.0.2.10/24 scope global dummy0\n'
+    ))
+    assert task_gui._host_addresses() == ['192.168.21.128']
+
+    urls = task_gui._local_addresses(8080)
+    assert 'http://192.168.21.128:8080/' in urls
+    assert not any('192.0.2.10' in u for u in urls)
+
+
+def test_link_local_is_not_advertised(monkeypatch):
+    monkeypatch.setattr(task_gui, '_probe', lambda cmd, timeout=5: (
+        '2: ens160    inet 169.254.3.4/16 scope global ens160\n'))
+    assert task_gui._host_addresses() == []
+
+
+def test_loopback_url_always_offered(monkeypatch):
+    monkeypatch.setattr(task_gui, '_probe', lambda cmd, timeout=5: None)
+    monkeypatch.setattr(task_gui, '_host_addresses', lambda: [])
+    assert task_gui._local_addresses(8080) == ['http://127.0.0.1:8080/']
+
+
+# ── firewall awareness ──────────────────────────────────────────────────────
+
+def test_firewall_blocks_when_port_closed(monkeypatch):
+    def fake(cmd, timeout=5):
+        if 'is-active' in cmd:
+            return 'active\n'
+        if cmd[0] == 'firewall-cmd':
+            return '\n'          # nothing open, as on a stock RHEL/Alma box
+        return None
+    monkeypatch.setattr(task_gui, '_probe', fake)
+    assert task_gui.firewall_blocks(8080) is True
+
+
+def test_firewall_does_not_block_when_port_open(monkeypatch):
+    def fake(cmd, timeout=5):
+        if 'is-active' in cmd:
+            return 'active\n'
+        if cmd[0] == 'firewall-cmd':
+            return '8080/tcp 443/tcp\n'
+        return None
+    monkeypatch.setattr(task_gui, '_probe', fake)
+    assert task_gui.firewall_blocks(8080) is False
+
+
+def test_no_firewall_warning_when_firewalld_inactive(monkeypatch):
+    monkeypatch.setattr(task_gui, '_probe',
+                        lambda cmd, timeout=5: 'inactive\n' if 'is-active' in cmd else None)
+    assert task_gui.firewall_blocks(8080) is False
+
+
+def test_firewall_check_never_opens_the_port(monkeypatch):
+    """This simulator grades firewall tasks — the panel must never touch
+    firewalld, only report on it."""
+    seen = []
+
+    def fake(cmd, timeout=5):
+        seen.append(cmd)
+        return 'active\n' if 'is-active' in cmd else '\n'
+
+    monkeypatch.setattr(task_gui, '_probe', fake)
+    task_gui.firewall_blocks(8080)
+    flat = ' '.join(' '.join(c) for c in seen)
+    for mutating in ('--add-port', '--reload', '--permanent', '--remove-port'):
+        assert mutating not in flat, seen
