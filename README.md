@@ -24,11 +24,24 @@ Smashed your RHCSA exam and looking for the next step? Check out https://github.
 sudo -i
 git clone https://github.com/justbest23/rhcsa-simulator.git
 cd rhcsa-simulator
-./install.sh          # interactive (use --yes for unattended)
-rhcsa-simulator       # launch (must be root — validation reads real state)
+./install.sh                       # interactive (use --yes for unattended)
+rhcsa-simulator --exam --gui       # mock exam, questions in a browser panel
 ```
 
-At the menu, press **E** for a full Mock Exam or **Q** for a quick practice round.
+`--gui` is how you should practise. On the real EX200 the questions are **not
+in your terminal** — they live in a separate window on the exam desktop, and
+working that window while you work the box is a skill in itself. The panel
+reproduces it: a collapsed checklist of tasks, each opening in place to reveal
+its text, **Revisit** and **Done** ticks on every row, and the countdown beside
+them. See [Exam task panel](#exam-task-panel-browser).
+
+<p align="center">
+  <img src="docs/img/task-panel.jpg" alt="The exam task panel: a collapsed list of tasks with Revisit and Done ticks, one row expanded to show its text, and a countdown in the sidebar" width="900">
+</p>
+
+Prefer the terminal, or on a box with no browser anywhere? Drop `--gui` and
+everything still works — `rhcsa-simulator` on its own opens the menu, where
+**E** is a full Mock Exam and **Q** a quick practice round.
 
 The simulator **auto-creates the practice disks it needs** (loop devices, plus
 any spare disk like `/dev/sda`) and **sets up each task's starting state** at
@@ -166,30 +179,56 @@ Run without installing: `sudo python3 rhcsa_simulator.py`.
 
 ## Usage
 
-```bash
-sudo rhcsa-simulator    # interactive menu
-```
-
-### Exam task panel (browser)
-
-The real exam doesn't put the questions in your terminal — they live in a
-window on the exam desktop, selected one at a time from a dropdown, each with
-**Revisit** and **Done** ticks. Managing that window while you work is its own
-skill, so practise it:
+### Exam task panel (browser) — the closest thing to the real exam
 
 ```bash
-sudo rhcsa-simulator --exam --gui          # panel on :8080
-sudo rhcsa-simulator --exam --gui 9000     # pick a port
+sudo rhcsa-simulator --exam --gui                        # panel on :8080
+sudo rhcsa-simulator --exam --gui 9000                   # pick a port
 sudo rhcsa-simulator --exam --gui --gui-bind 127.0.0.1   # local only
 ```
 
-The panel prints its URLs at exam start. It binds `0.0.0.0` by default so a
-headless exam VM can be read from your laptop's browser; it is unauthenticated
-and serves exam questions only — no shell, no control of the box.
+On the day, the questions are in a window on the exam desktop, not in your
+terminal. You open a task, alt-tab to a shell, work, alt-tab back, lose your
+place, scroll, and repeat that twenty-odd times against a clock. Plenty of
+people who know the material lose time to exactly that, so it is worth
+rehearsing rather than discovering.
+
+The panel is that window:
+
+- **A collapsed list of tasks.** Rows read `Task 07`, nothing more — as on the
+  day you cannot triage by skimming, you have to open each one.
+- **Click a row and it expands in place** to show the task text, category and
+  domain.
+- **Revisit and Done on every row.** Independent, so a task can be both, and
+  clicking again clears them. The sidebar tallies done / revisit / left.
+- **Live countdown**, anchored to uptime so it survives the clock and timezone
+  tasks — and a reboot.
+- **Light/dark toggle**, remembered per browser.
+
+It prints its URLs at exam start. It binds `0.0.0.0` by default so a headless
+exam VM can be read from your laptop's browser; it is unauthenticated and
+serves exam questions only — no shell, no control of the box.
+
+If firewalld is blocking the port (the default on a fresh RHEL/Alma install),
+the simulator says so at exam start and suggests an SSH forward. It will not
+open the port for you: this exam pool contains firewall tasks, and editing
+firewalld would corrupt what their validators grade.
+
+```bash
+ssh -L 8080:127.0.0.1:8080 root@<exam-vm>   # then browse to 127.0.0.1:8080
+```
 
 The ticks are your own bookkeeping. Grading is unchanged: it still runs against
 real system state when you return to the terminal, so ticking "done" earns
 nothing on its own.
+
+### Terminal menu
+
+Everything works without a browser — drop `--gui`:
+
+```bash
+sudo rhcsa-simulator    # interactive menu
+```
 
 | Key | Mode | What it does |
 |---|---|---|
@@ -207,8 +246,9 @@ nothing on its own.
 ### Command-line shortcuts
 
 ```bash
+rhcsa-simulator --exam --gui         # mock exam with the browser task panel
 rhcsa-simulator --quick [lvm]        # short practice round (pick 4-20 tasks)
-rhcsa-simulator --exam               # jump straight into a mock exam
+rhcsa-simulator --exam               # mock exam, terminal only
 rhcsa-simulator --practice lvm       # practice a specific category
 rhcsa-simulator --learn              # study mode
 rhcsa-simulator --adaptive           # SM-2 weak-area practice
