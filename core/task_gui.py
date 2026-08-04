@@ -3,16 +3,19 @@ Exam task panel — the question sheet as a separate window you manage.
 
 WHY
 ---
-On the real EX200 the tasks live in a window on the exam desktop, not in
-your terminal: a checklist you tick off, with each task's detail hidden
-until you open it. You read one, alt-tab away, work, alt-tab back, lose
-your place, scroll, and repeat that twenty times under a clock. Candidates
-consistently report that juggling that panel is its own skill, separate
-from knowing the material — so practising against a scrollable pager in
-the same terminal you're working in trains the wrong thing.
+On the real EX200 the tasks live in a window of their own on the exam
+desktop — Red Hat's own application, not a browser and not your terminal:
+a checklist you tick off, with each task's detail hidden until you open it.
+You read one, alt-tab away, work, alt-tab back, lose your place, scroll,
+and repeat that twenty times under a clock. Candidates consistently report
+that juggling that window is its own skill, separate from knowing the
+material — so practising against a scrollable pager in the same terminal
+you're working in trains the wrong thing.
 
-This serves the live task sheet over HTTP so it can sit in a browser window
-beside your terminals, the way it will on the day.
+We reproduce the shape of that, not the technology: the live task sheet is
+served over HTTP so it can sit in a window beside your terminals, the way
+it will on the day. HTTP is simply the one way to put a window on screen
+that needs nothing installed and works when the exam VM is headless.
 
 SHAPE
 -----

@@ -24,24 +24,26 @@ Smashed your RHCSA exam and looking for the next step? Check out https://github.
 sudo -i
 git clone https://github.com/justbest23/rhcsa-simulator.git
 cd rhcsa-simulator
-./install.sh                       # interactive (use --yes for unattended)
-rhcsa-simulator --exam --gui       # mock exam, questions in a browser panel
+./install.sh                 # interactive (use --yes for unattended)
+rhcsa-simulator --exam       # mock exam — task panel opens in its own window
 ```
 
-`--gui` is how you should practise. On the real EX200 the questions are **not
-in your terminal** — they live in a separate window on the exam desktop, and
-working that window while you work the box is a skill in itself. The panel
-reproduces it: a collapsed checklist of tasks, each opening in place to reveal
-its text, **Revisit** and **Done** ticks on every row, and the countdown beside
-them. See [Exam task panel](#exam-task-panel-browser).
+The exam prints a URL at start; open it beside your terminals. On the real
+EX200 the questions are **not in your terminal** — they live in a separate
+window on the exam desktop, and working that window while you work the box is
+a skill in itself. The panel reproduces it: a collapsed checklist of tasks,
+each opening in place to reveal its text, **Revisit** and **Done** ticks on
+every row, and the countdown beside them.
+See [Exam task panel](#exam-task-panel--the-closest-thing-to-the-real-exam).
 
 <p align="center">
   <img src="docs/img/task-panel.jpg" alt="The exam task panel: a collapsed list of tasks with Revisit and Done ticks, one row expanded to show its text, and a countdown in the sidebar" width="900">
 </p>
 
-Prefer the terminal, or on a box with no browser anywhere? Drop `--gui` and
-everything still works — `rhcsa-simulator` on its own opens the menu, where
-**E** is a full Mock Exam and **Q** a quick practice round.
+Prefer to keep everything in the terminal, or on a box with no browser
+anywhere? `--no-gui` turns the panel off and everything still works — as does
+`rhcsa-simulator` on its own, which opens the menu, where **E** is a full Mock
+Exam and **Q** a quick practice round.
 
 The simulator **auto-creates the practice disks it needs** (loop devices, plus
 any spare disk like `/dev/sda`) and **sets up each task's starting state** at
@@ -179,16 +181,19 @@ Run without installing: `sudo python3 rhcsa_simulator.py`.
 
 ## Usage
 
-### Exam task panel (browser) — the closest thing to the real exam
+### Exam task panel — the closest thing to the real exam
 
 ```bash
-sudo rhcsa-simulator --exam --gui                        # panel on :8080
-sudo rhcsa-simulator --exam --gui 9000                   # pick a port
-sudo rhcsa-simulator --exam --gui --gui-bind 127.0.0.1   # local only
+sudo rhcsa-simulator --exam                              # panel on :8080
+sudo rhcsa-simulator --exam --gui 9000                   # move it to another port
+sudo rhcsa-simulator --exam --gui-bind 127.0.0.1         # local only
+sudo rhcsa-simulator --exam --no-gui                     # terminal only
 ```
 
-On the day, the questions are in a window on the exam desktop, not in your
-terminal. You open a task, alt-tab to a shell, work, alt-tab back, lose your
+On the day the questions are in a window of their own on the exam desktop —
+Red Hat's own application, not a browser and not your terminal. What the
+panel reproduces is the *shape* of that: a separate window you keep beside
+your shells. You open a task, alt-tab to a shell, work, alt-tab back, lose your
 place, scroll, and repeat that twenty-odd times against a clock. Plenty of
 people who know the material lose time to exactly that, so it is worth
 rehearsing rather than discovering.
@@ -224,7 +229,7 @@ nothing on its own.
 
 ### Terminal menu
 
-Everything works without a browser — drop `--gui`:
+Everything works without a browser — pass `--no-gui`:
 
 ```bash
 sudo rhcsa-simulator    # interactive menu
@@ -246,9 +251,9 @@ sudo rhcsa-simulator    # interactive menu
 ### Command-line shortcuts
 
 ```bash
-rhcsa-simulator --exam --gui         # mock exam with the browser task panel
+rhcsa-simulator --exam               # mock exam + task panel window
+rhcsa-simulator --exam --no-gui      # mock exam, terminal only
 rhcsa-simulator --quick [lvm]        # short practice round (pick 4-20 tasks)
-rhcsa-simulator --exam               # mock exam, terminal only
 rhcsa-simulator --practice lvm       # practice a specific category
 rhcsa-simulator --learn              # study mode
 rhcsa-simulator --adaptive           # SM-2 weak-area practice

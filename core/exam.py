@@ -38,9 +38,9 @@ class ExamSession:
     def __init__(self, task_count=None, timer_enabled=True, duration_minutes=None,
                  reboot_simulation=None, gui_port=None, gui_bind='0.0.0.0'):
         self.task_count = task_count or settings.DEFAULT_EXAM_TASKS
-        # Browser task panel — the exam shows its questions in a window you
-        # keep beside your terminals, so practising that is part of the point.
-        # None = off (opt-in via --gui).
+        # Task panel — the exam shows its questions in a window you keep
+        # beside your terminals, so practising that is part of the point.
+        # On by default from the CLI; None = off (--no-gui).
         self.gui_port = gui_port
         self.gui_bind = gui_bind
         self.panel = None
@@ -117,7 +117,7 @@ class ExamSession:
         # Refresh the remote NFS server's exports so this exam starts clean.
         self._reprovision_nfs()
 
-        # Bring the browser panel up before the sheet is shown, so the URL is
+        # Bring the task panel up before the sheet is shown, so the URL is
         # on screen while the candidate still has both hands free.
         self._start_task_panel()
 
@@ -145,8 +145,9 @@ class ExamSession:
         print("=" * 60)
 
     def _start_task_panel(self):
-        """Serve the task sheet to a browser window. Opt-in, best-effort: a
-        panel that won't start must never prevent an exam from running."""
+        """Serve the task sheet to a window beside the candidate's terminals.
+        Best-effort: a panel that won't start must never prevent an exam from
+        running."""
         if not self.gui_port:
             return
         from core import task_gui

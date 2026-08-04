@@ -30,10 +30,16 @@ python3 -m pytest -v            # Verbose output
 
 - `rhcsa_simulator.py` — Main entry point
 - `core/` — Engine: task manager, exam loop, SM-2 spaced repetition, ResultsDB
-- `core/task_gui.py` — opt-in browser task panel (`--gui`), mirroring how the
-  real exam presents questions: dropdown task selector, Revisit/Done ticks,
-  countdown. Advisory only — it must never influence grading, which stays
-  driven by real system state. Stdlib `http.server`, no external assets.
+- `core/task_gui.py` — task panel, **on by default for exam mode**
+  (`--no-gui` opts out), mirroring how the real exam presents questions: a
+  collapsed task list that opens in place, Revisit/Done ticks, countdown.
+  (The real exam's is a native app; we serve ours over HTTP to a browser
+  because that needs nothing installed and works on a headless VM. Don't
+  describe the exam's own window as a browser.) Advisory only — it must
+  never influence grading, which stays driven by real system state. Stdlib
+  `http.server`, no external assets. It must also never mutate the box:
+  notably it reports on firewalld but never opens a port, because firewall
+  tasks are graded.
 - `tasks/` — Task definitions (188 tasks, 25 categories, 8 domains)
 - `validators/` — Safe read-only system validators for each task type
 - `utils/` — AI feedback, progress reports, device detection
