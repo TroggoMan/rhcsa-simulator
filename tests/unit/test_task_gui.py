@@ -374,3 +374,20 @@ def test_firewall_check_never_opens_the_port(monkeypatch):
     flat = ' '.join(' '.join(c) for c in seen)
     for mutating in ('--add-port', '--reload', '--permanent', '--remove-port'):
         assert mutating not in flat, seen
+
+
+# ── theme ───────────────────────────────────────────────────────────────────
+
+def test_theme_toggle_present_and_overrides_the_os_preference(panel):
+    """Dark/light must be switchable in the page: the exam VM's browser often
+    has no desktop theme to follow, and the viewer may just want the other
+    one. data-theme has to win over prefers-color-scheme in BOTH directions."""
+    _, base = panel
+    _, body = _get(base, '/')
+
+    assert 'id="theme"' in body
+    assert ':root[data-theme="light"]' in body
+    assert ':root[data-theme="dark"]' in body
+    # The OS preference must not beat an explicit choice.
+    assert ':root:not([data-theme])' in body
+    assert 'localStorage' in body

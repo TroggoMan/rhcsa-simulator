@@ -381,7 +381,10 @@ PAGE_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RHCSA Mock Exam &mdash; Tasks</title>
 <style>
-  :root {
+  /* Dark is the default. The OS preference applies only while the viewer
+     has not chosen explicitly; data-theme (set by the toggle, remembered in
+     localStorage) always wins in both directions. */
+  :root, :root[data-theme="dark"] {
     --bg:#0e1116; --sunk:#0a0d11; --panel:#161a21; --panel2:#1c212a;
     --edge:#252b35; --edge2:#333b47;
     --ink:#e8ebf0; --dim:#9aa4b2; --faint:#6b7280;
@@ -389,12 +392,18 @@ PAGE_HTML = """<!doctype html>
     --radius:14px;
   }
   @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([data-theme]) {
       --bg:#f5f6f8; --sunk:#eceef2; --panel:#fff; --panel2:#f8f9fb;
       --edge:#e2e5ea; --edge2:#cfd4dc;
       --ink:#11151b; --dim:#5b6472; --faint:#858d99;
       --done:#15803d; --revisit:#b45309;
     }
+  }
+  :root[data-theme="light"] {
+    --bg:#f5f6f8; --sunk:#eceef2; --panel:#fff; --panel2:#f8f9fb;
+    --edge:#e2e5ea; --edge2:#cfd4dc;
+    --ink:#11151b; --dim:#5b6472; --faint:#858d99;
+    --done:#15803d; --revisit:#b45309;
   }
   * { box-sizing:border-box; }
   html,body { height:100%; }
@@ -441,7 +450,14 @@ PAGE_HTML = """<!doctype html>
   .stat span { font-size:11px; color:var(--faint); }
   .stat.d b { color:var(--done); }
   .stat.r b { color:var(--revisit); }
-  .side-note { margin-top:auto; font-size:11.5px; color:var(--faint); line-height:1.5; }
+  .side-foot { margin-top:auto; display:flex; flex-direction:column; gap:12px; }
+  .side-note { font-size:11.5px; color:var(--faint); line-height:1.5; }
+  #theme {
+    font:inherit; font-size:12.5px; padding:8px 12px; border-radius:9px;
+    border:1px solid var(--edge2); background:var(--panel); color:var(--dim);
+    cursor:pointer; display:flex; align-items:center; gap:8px;
+  }
+  #theme:hover { color:var(--ink); border-color:var(--accent); }
 
   /* ── main ──────────────────────────────────────────────────────────── */
   main { flex:1; padding:26px 30px 60px; max-width:960px; }
@@ -563,8 +579,11 @@ PAGE_HTML = """<!doctype html>
         <div class="stat"><b id="nleft">0</b><span>left</span></div>
       </div>
     </div>
-    <div class="side-note">Ticks here are your own notes. Grading runs
-      against real system state when you return to the terminal.</div>
+    <div class="side-foot">
+      <div class="side-note">Ticks here are your own notes. Grading runs
+        against real system state when you return to the terminal.</div>
+      <button id="theme"><span id="themeicon">&#9789;</span><span id="themetext">Dark</span></button>
+    </div>
   </aside>
 
   <main>
@@ -585,6 +604,39 @@ PAGE_HTML = """<!doctype html>
   var localRemaining = null; // ticks locally between polls
 
   var $ = function (id) { return document.getElementById(id); };
+
+  // ── theme ───────────────────────────────────────────────────────────
+  // Follows the OS until the viewer picks one, then remembers the choice.
+  var THEME_KEY = 'rhcsa-panel-theme';
+
+  function systemTheme() {
+    return (window.matchMedia
+      && window.matchMedia('(prefers-color-scheme: light)').matches)
+      ? 'light' : 'dark';
+  }
+
+  function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') || systemTheme();
+  }
+
+  function applyTheme(name) {
+    if (name) document.documentElement.setAttribute('data-theme', name);
+    var dark = currentTheme() === 'dark';
+    $('themeicon').innerHTML = dark ? '&#9789;' : '&#9788;';   // moon / sun
+    $('themetext').textContent = dark ? 'Dark' : 'Light';
+  }
+
+  try {
+    var saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') applyTheme(saved);
+    else applyTheme(null);
+  } catch (err) { applyTheme(null); }
+
+  $('theme').addEventListener('click', function () {
+    var next = currentTheme() === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (err) { /* private mode */ }
+  });
 
   function esc(s) {
     return String(s === null || s === undefined ? '' : s)
