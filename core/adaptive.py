@@ -21,9 +21,15 @@ logger = logging.getLogger(__name__)
 class AdaptiveMode:
     """SM-2 driven adaptive practice session."""
 
-    def __init__(self):
+    def __init__(self, gui_port=None, gui_bind='0.0.0.0'):
         self.db = get_results_db()
         self.tasks_per_session = 5
+        # Task panel — same window every other mode uses, on by default;
+        # None (--no-gui) falls back to the terminal only.
+        self.gui_port = gui_port
+        self.gui_bind = gui_bind
+        self.tasks = []
+        self.panel = None
 
     def start(self):
         """Start an adaptive practice session."""
@@ -68,6 +74,10 @@ class AdaptiveMode:
         if not confirm_action("Ready to start?", default=True):
             return
 
+        self.tasks = tasks
+        from core import task_gui
+        self.panel = task_gui.open_panel(self.tasks, self.gui_port, self.gui_bind)
+
         # Reset the box to a clean, practice-ready state (fresh loop disks +
         # remove leftover artifacts) just like exam mode does at start, and
         # offer to install any packages the drawn tasks rely on.
@@ -86,6 +96,8 @@ class AdaptiveMode:
             # However the session ends (finished, quit, or Ctrl-C), leave a
             # clean box — reverse any still-active setup and remove artifacts.
             task_env.session_teardown(tasks)
+            task_gui.close_panel(self.panel)
+            self.panel = None
 
         # Show session summary
         if results:
@@ -354,7 +366,7 @@ class AdaptiveMode:
         input("Press Enter to return to menu...")
 
 
-def run_adaptive_mode():
+def run_adaptive_mode(gui_port=None, gui_bind='0.0.0.0'):
     """Run adaptive mode (convenience function)."""
-    mode = AdaptiveMode()
+    mode = AdaptiveMode(gui_port=gui_port, gui_bind=gui_bind)
     mode.start()

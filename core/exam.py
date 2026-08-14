@@ -148,55 +148,13 @@ class ExamSession:
         """Serve the task sheet to a window beside the candidate's terminals.
         Best-effort: a panel that won't start must never prevent an exam from
         running."""
-        if not self.gui_port:
-            return
         from core import task_gui
-        task_gui.clear_marks()
-        self.panel, urls = task_gui.start_for_session(
-            self, port=self.gui_port, bind=self.gui_bind)
-        if not urls:
-            print(fmt.warning(
-                f"\nTask panel could not start on port {self.gui_port} "
-                f"(in use?). Continuing without it — the task sheet below is "
-                f"the same content."))
-            return
-        print()
-        print(fmt.success("Task panel running — open it beside your terminals:"))
-        for url in urls:
-            print(fmt.bold(f"    {url}"))
-        if self.gui_bind not in ('127.0.0.1', 'localhost'):
-            print(fmt.dim("  (Unauthenticated and reachable from your LAN. It "
-                          "serves exam questions only — no shell, no control "
-                          "of this box.)"))
-            # A stock RHEL/Alma box has firewalld up with nothing open, so
-            # the LAN URL above simply won't connect from a laptop. Say so
-            # rather than letting the candidate debug it mid-exam. We never
-            # open the port ourselves — this simulator grades firewall tasks,
-            # and editing firewalld here would corrupt what they check.
-            try:
-                from core import task_gui
-                if task_gui.firewall_blocks(self.gui_port):
-                    print(fmt.warning(
-                        f"  firewalld is blocking port {self.gui_port}, so only "
-                        f"the 127.0.0.1 URL will work from this box."))
-                    print(fmt.dim(
-                        f"    Reach it from another machine either by "
-                        f"forwarding it over SSH (leaves the firewall alone):\n"
-                        f"      ssh -L {self.gui_port}:127.0.0.1:"
-                        f"{self.gui_port} root@<this-box>\n"
-                        f"    or by opening the port yourself. Note that this "
-                        f"exam may contain firewall tasks, so the simulator "
-                        f"will not change firewalld for you."))
-            except Exception:
-                pass
+        self.panel = task_gui.open_panel(self.tasks, self.gui_port, self.gui_bind)
 
     def _stop_task_panel(self):
-        if self.panel:
-            try:
-                self.panel.stop()
-            except Exception:
-                pass
-            self.panel = None
+        from core import task_gui
+        task_gui.close_panel(self.panel)
+        self.panel = None
 
     def _provision_devices(self):
         """Assign a distinct practice device to each whole-disk task so an LVM

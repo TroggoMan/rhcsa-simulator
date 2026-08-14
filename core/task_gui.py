@@ -357,8 +357,9 @@ class TaskPanel:
             self._thread = None
 
 
-def start_for_session(session, port=DEFAULT_PORT, bind='0.0.0.0'):
-    """Start a panel backed by a live ExamSession. Never raises."""
+def start_for_tasks(get_tasks, port=DEFAULT_PORT, bind='0.0.0.0'):
+    """Start a panel backed by a callable returning the current task list.
+    Never raises."""
     def provider():
         remaining = None
         try:
@@ -366,7 +367,7 @@ def start_for_session(session, port=DEFAULT_PORT, bind='0.0.0.0'):
             remaining = exam_clock.remaining_seconds()
         except Exception:
             pass
-        return build_state(getattr(session, 'tasks', []), remaining)
+        return build_state(get_tasks(), remaining)
 
     try:
         panel = TaskPanel(provider, port=port, bind=bind)
@@ -375,6 +376,71 @@ def start_for_session(session, port=DEFAULT_PORT, bind='0.0.0.0'):
     except Exception as e:
         logger.warning("task panel failed to start: %s", e)
         return (None, [])
+
+
+def start_for_session(session, port=DEFAULT_PORT, bind='0.0.0.0'):
+    """Start a panel backed by a live session exposing a `.tasks` list.
+    Never raises."""
+    return start_for_tasks(lambda: getattr(session, 'tasks', []),
+                            port=port, bind=bind)
+
+
+def open_panel(tasks, port, bind='0.0.0.0'):
+    """Start the task panel for a session's task list and print how to reach
+    it. Shared by every mode (exam/quick/practice/adaptive/learn) so the
+    panel is the same default experience everywhere, with the terminal as
+    the automatic fallback: a panel that won't start must never stop a
+    session, it just prints a warning and the caller carries on without it.
+    Returns the running TaskPanel, or None if disabled or it failed to bind.
+    """
+    if not port:
+        return None
+    from utils import formatters as fmt
+    clear_marks()
+    panel, urls = start_for_tasks(lambda: tasks, port=port, bind=bind)
+    if not urls:
+        print(fmt.warning(
+            f"\nTask panel could not start on port {port} (in use?). "
+            f"Continuing in the terminal — the task text below is the same "
+            f"content."))
+        return None
+    print()
+    print(fmt.success("Task panel running — open it beside your terminals:"))
+    for url in urls:
+        print(fmt.bold(f"    {url}"))
+    if bind not in ('127.0.0.1', 'localhost'):
+        print(fmt.dim("  (Unauthenticated and reachable from your LAN. It "
+                      "serves the task sheet only — no shell, no control "
+                      "of this box.)"))
+        # A stock RHEL/Alma box has firewalld up with nothing open, so the
+        # LAN URL above simply won't connect from a laptop. Say so rather
+        # than letting the candidate debug it mid-session. We never open the
+        # port ourselves — this simulator grades firewall tasks, and editing
+        # firewalld here would corrupt what they check.
+        try:
+            if firewall_blocks(port):
+                print(fmt.warning(
+                    f"  firewalld is blocking port {port}, so only the "
+                    f"127.0.0.1 URL will work from this box."))
+                print(fmt.dim(
+                    f"    Reach it from another machine either by "
+                    f"forwarding it over SSH (leaves the firewall alone):\n"
+                    f"      ssh -L {port}:127.0.0.1:{port} root@<this-box>\n"
+                    f"    or by opening the port yourself. Note that this "
+                    f"session may include firewall tasks, so the simulator "
+                    f"will not change firewalld for you."))
+        except Exception:
+            pass
+    return panel
+
+
+def close_panel(panel):
+    """Stop a panel started by open_panel(), best-effort."""
+    if panel:
+        try:
+            panel.stop()
+        except Exception:
+            pass
 
 
 PAGE_HTML = """<!doctype html>

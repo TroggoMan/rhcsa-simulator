@@ -27,9 +27,9 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Quick Start Examples:
-  %(prog)s --quick              5 random tasks
+  %(prog)s --quick              5 random tasks (task panel in a window)
   %(prog)s --quick lvm          5 LVM tasks
-  %(prog)s --exam               Full mock exam (task panel in a window)
+  %(prog)s --exam               Full mock exam
   %(prog)s --exam --no-gui      Same, terminal only
   %(prog)s --learn              Domain-based study mode
   %(prog)s --practice lvm       Practice LVM category
@@ -56,20 +56,22 @@ Quick Start Examples:
     parser.add_argument('--import-mode', choices=['replace', 'merge'],
                         default='replace',
                         help='How --import-code applies (default: replace)')
-    # The task panel is ON for exam mode by default: the real exam puts its
+    # The task panel is ON by default in every mode: the real exam puts its
     # questions in a window of their own, so that is the honest default for a
     # simulator. (We serve ours to a browser; Red Hat's is a native app. The
-    # window is the point, not the technology.) --no-gui opts out. Both flags
-    # write the same dest, so whichever comes last wins.
+    # window is the point, not the technology.) --no-gui opts out; if the
+    # panel can't bind (e.g. port in use) it falls back to the terminal sheet
+    # automatically. Both flags write the same dest, so whichever comes last
+    # wins.
     from core.task_gui import DEFAULT_PORT as GUI_PORT
     parser.add_argument('--gui', nargs='?', const=GUI_PORT, type=int,
                         default=GUI_PORT, metavar='PORT',
-                        help=f'Port for the exam task panel (default '
-                             f'{GUI_PORT}). The panel is on by default for '
-                             f'--exam; pass a port only to move it.')
+                        help=f'Port for the task panel (default {GUI_PORT}). '
+                             f'On by default in every mode; pass a port only '
+                             f'to move it.')
     parser.add_argument('--no-gui', dest='gui', action='store_const', const=None,
-                        help='Run the exam in the terminal only, with no '
-                             'task panel window')
+                        help='Run in the terminal only, with no task panel '
+                             'window')
     parser.add_argument('--gui-bind', default='0.0.0.0', metavar='ADDR',
                         help='Address the task panel listens on '
                              '(default 0.0.0.0, so a headless exam VM can be '
@@ -81,9 +83,10 @@ Quick Start Examples:
     return parser.parse_args()
 
 
-def run_quick_practice(category=None):
+def run_quick_practice(category=None, gui_port=None, gui_bind='0.0.0.0'):
     """Run quick practice - a short session (4-20 tasks) with ResultsDB tracking."""
     from tasks.registry import TaskRegistry
+    from core import task_gui
     from core.validator import get_validator
     from core.results_db import get_results_db
     from core import task_env
@@ -128,6 +131,8 @@ def run_quick_practice(category=None):
     # changes are reverted ONCE, at the end of the session (finally below).
     print(fmt.dim("Preparing a clean practice environment..."))
     task_env.prepare_session(tasks)
+
+    panel = task_gui.open_panel(tasks, gui_port, gui_bind)
 
     try:
         for i, task in enumerate(tasks, 1):
@@ -213,6 +218,7 @@ def run_quick_practice(category=None):
         # However the session ends (finished, quit, or Ctrl-C), leave a clean
         # box — reverse all faults/preconditions and remove artifacts.
         task_env.session_teardown(tasks)
+        task_gui.close_panel(panel)
 
     # Summary
     print()
@@ -349,7 +355,7 @@ def main():
 
     # CLI quick modes
     if args.quick:
-        run_quick_practice(args.quick)
+        run_quick_practice(args.quick, gui_port=args.gui, gui_bind=args.gui_bind)
         return 0
 
     if args.exam:
@@ -363,13 +369,13 @@ def main():
             from tasks.registry import TaskRegistry
             TaskRegistry.initialize()
             if args.learn in TaskRegistry.get_all_categories():
-                run_learn_mode(category=args.learn)
+                run_learn_mode(category=args.learn, gui_port=args.gui, gui_bind=args.gui_bind)
             else:
                 print(f"Unknown category: {args.learn}")
                 print("Use --list-categories to see available categories")
                 return 1
         else:
-            run_learn_mode()
+            run_learn_mode(gui_port=args.gui, gui_bind=args.gui_bind)
         return 0
 
     if args.practice:
@@ -377,7 +383,7 @@ def main():
         TaskRegistry.initialize()
         if args.practice in TaskRegistry.get_all_categories():
             from core.practice import PracticeSession
-            session = PracticeSession()
+            session = PracticeSession(gui_port=args.gui, gui_bind=args.gui_bind)
             session.category = args.practice
             session.difficulty = 'exam'
             session.start()
@@ -389,7 +395,7 @@ def main():
 
     if args.adaptive:
         from core.adaptive import run_adaptive_mode
-        run_adaptive_mode()
+        run_adaptive_mode(gui_port=args.gui, gui_bind=args.gui_bind)
         return 0
 
     # Note if a previous session's environment is still in place (expected —
@@ -421,10 +427,10 @@ def main():
             choice = menu.display_main_menu()
 
             if choice == 'learn':
-                run_learn_mode()
+                run_learn_mode(gui_port=args.gui, gui_bind=args.gui_bind)
 
             elif choice == 'quick_practice':
-                run_quick_practice()
+                run_quick_practice(gui_port=args.gui, gui_bind=args.gui_bind)
                 input("\nPress Enter to return to menu...")
 
             elif choice == 'exam':
@@ -432,11 +438,11 @@ def main():
                 input("\nPress Enter to return to menu...")
 
             elif choice == 'practice':
-                run_practice_mode()
+                run_practice_mode(gui_port=args.gui, gui_bind=args.gui_bind)
                 input("\nPress Enter to return to menu...")
 
             elif choice == 'adaptive':
-                run_adaptive_mode()
+                run_adaptive_mode(gui_port=args.gui, gui_bind=args.gui_bind)
 
             elif choice == 'boot_rescue':
                 from core import boot_rescue

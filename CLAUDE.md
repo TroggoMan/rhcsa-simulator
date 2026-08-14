@@ -30,8 +30,11 @@ python3 -m pytest -v            # Verbose output
 
 - `rhcsa_simulator.py` — Main entry point
 - `core/` — Engine: task manager, exam loop, SM-2 spaced repetition, ResultsDB
-- `core/task_gui.py` — task panel, **on by default for exam mode**
-  (`--no-gui` opts out), mirroring how the real exam presents questions: a
+- `core/task_gui.py` — task panel, **on by default in every mode** (exam,
+  quick, practice, adaptive, and learn's "Practice this topic"); `--no-gui`
+  opts out, and a panel that fails to bind falls back to the terminal sheet
+  automatically. `open_panel()`/`close_panel()` are the shared lifecycle
+  every mode uses. Mirrors how the real exam presents questions: a
   collapsed task list that opens in place, Revisit/Done ticks, countdown.
   (The real exam's is a native app; we serve ours over HTTP to a browser
   because that needs nothing installed and works on a headless VM. Don't

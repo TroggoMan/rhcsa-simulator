@@ -26,11 +26,17 @@ logger = logging.getLogger(__name__)
 class PracticeSession:
     """Practice mode session with ResultsDB tracking."""
 
-    def __init__(self):
+    def __init__(self, gui_port=None, gui_bind='0.0.0.0'):
         self.category = None
         self.difficulty = None  # None => prompt in start(); set explicitly to skip prompt
         self.task_count = settings.DEFAULT_PRACTICE_TASKS
         self.skip_reboot = False
+        # Task panel — same window every other mode uses, on by default;
+        # None (--no-gui) falls back to the terminal only.
+        self.gui_port = gui_port
+        self.gui_bind = gui_bind
+        self.tasks = []
+        self.panel = None
 
     def start(self):
         """Start practice session."""
@@ -95,6 +101,10 @@ class PracticeSession:
 
         print(fmt.info(f"\nStarting session…"))
 
+        self.tasks = tasks
+        from core import task_gui
+        self.panel = task_gui.open_panel(self.tasks, self.gui_port, self.gui_bind)
+
         # Reset the box to a clean, practice-ready state (fresh loop disks +
         # remove leftover artifacts) exactly like exam mode does at start, and
         # offer to install any packages the drawn tasks rely on.
@@ -112,6 +122,8 @@ class PracticeSession:
             # However the session ends (finished, quit, or Ctrl-C), leave a
             # clean box — reverse any still-active setup and remove artifacts.
             task_env.session_teardown(tasks)
+            task_gui.close_panel(self.panel)
+            self.panel = None
 
     def _select_category(self):
         """Select practice category."""
@@ -375,7 +387,7 @@ class PracticeSession:
         print()
 
 
-def run_practice_mode():
+def run_practice_mode(gui_port=None, gui_bind='0.0.0.0'):
     """Run practice mode (convenience function)."""
-    session = PracticeSession()
+    session = PracticeSession(gui_port=gui_port, gui_bind=gui_bind)
     session.start()

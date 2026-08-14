@@ -14,8 +14,13 @@ logger = logging.getLogger(__name__)
 class LearnMode:
     """Domain-based learn mode with SM-2 indicators and practice integration."""
 
-    def __init__(self):
+    def __init__(self, gui_port=None, gui_bind='0.0.0.0'):
         self._db = None
+        # Task panel — same window every other mode uses, on by default;
+        # None (--no-gui) falls back to the terminal only. Only relevant
+        # once a "Practice this topic" jump generates a task list.
+        self.gui_port = gui_port
+        self.gui_bind = gui_bind
 
     @property
     def db(self):
@@ -260,14 +265,20 @@ class LearnMode:
                 return
 
             from core.practice import PracticeSession
+            from core import task_gui
 
-            session = PracticeSession()
+            session = PracticeSession(gui_port=self.gui_port, gui_bind=self.gui_bind)
             session.category = category
             session.difficulty = "exam"
             session.task_count = len(tasks)
+            session.tasks = tasks
 
-            for i, task in enumerate(tasks, 1):
-                session._run_practice_task(task, i, len(tasks))
+            session.panel = task_gui.open_panel(tasks, self.gui_port, self.gui_bind)
+            try:
+                for i, task in enumerate(tasks, 1):
+                    session._run_practice_task(task, i, len(tasks))
+            finally:
+                task_gui.close_panel(session.panel)
         except ImportError as e:
             logger.warning(f"Could not launch practice: {e}")
             print(fmt.warning("Practice mode not available."))
@@ -278,13 +289,13 @@ class LearnMode:
             input("Press Enter to continue...")
 
 
-def run_learn_mode(category=None):
+def run_learn_mode(category=None, gui_port=None, gui_bind='0.0.0.0'):
     """Run learn mode (convenience function).
 
     Args:
         category: Optional category to jump directly to
     """
-    mode = LearnMode()
+    mode = LearnMode(gui_port=gui_port, gui_bind=gui_bind)
     if category:
         mode._display_topic(category)
     else:

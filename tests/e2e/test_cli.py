@@ -19,6 +19,7 @@ def _args(**overrides):
         list_categories=False, quick=None, exam=False, learn=None,
         practice=None, adaptive=False,
         export_code=False, import_code=None, import_mode='replace',
+        gui=8080, gui_bind='0.0.0.0',
     )
     defaults.update(overrides)
     return MagicMock(**defaults)
@@ -175,4 +176,4 @@ class TestCLIDispatch:
                 adaptive=False,
             )
             main()
-            mock_quick.assert_called_once_with("all")
+            mock_quick.assert_called_once_with("all", gui_port=8080, gui_bind='0.0.0.0')
