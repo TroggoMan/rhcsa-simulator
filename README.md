@@ -98,6 +98,47 @@ SELinux).
 > Cloud VMs (AWS/Azure/GCP) work well — loop devices mean you don't have to
 > attach extra block storage to practice LVM/partitioning.
 
+### Network interface naming (VMware / VirtualBox / libvirt)
+
+The simulator's own network-configuration tasks never touch or require a
+specific real NIC name — anything that modifies network config uses an
+isolated `dummy0` interface it creates itself, so nothing *inside* the
+simulator depends on what your VM's primary interface is called.
+
+This only matters if you're practicing `nmcli`/`ip` commands by hand outside
+the simulator, or cross-checking against an older guide that assumes `eth0`.
+A few things worth knowing before that trips you up:
+
+- **RHEL 9/10 and Rocky/Alma default to predictable interface names**
+  (`ens*`/`enp*`), not `eth0` — and that's also what a real EX200 exam
+  machine shows. Chasing `eth0` is *less* exam-realistic, not more; the
+  simplest path is to note whatever name `ip a` shows after first boot and
+  use that consistently for the rest of the session.
+- The exact name depends on your hypervisor **and** the virtual NIC type, not
+  just the OS:
+
+  | Hypervisor | Typical NIC type | Typical interface name |
+  |---|---|---|
+  | VMware (Workstation/Fusion/ESXi) | E1000E (default) | `ens33` |
+  | VMware | VMXNET3 | `ens160` / `ens192` |
+  | VirtualBox | Intel PRO/1000 (default) | `enp0s3` |
+  | libvirt/KVM (virt-manager) | virtio-net (default) | `enp1s0` / `ens3` |
+  | libvirt/KVM | e1000 | `ens2` (varies) |
+
+  These are common defaults, not guarantees — the name is derived from the
+  PCI bus/slot the hypervisor assigns, which can shift if you add or remove
+  virtual hardware later. Treat it as "whatever `ip a` says on this VM", not
+  a fixed value to memorize or hardcode into scripts.
+- **Keep it simple:** give the VM exactly one NIC, boot it once, run `ip a`,
+  and use that name for the rest of the session. Don't add/remove virtual
+  NICs mid-practice — that can renumber the ones already there.
+- **If you specifically want legacy `eth0` naming** to match an older
+  tutorial, you can force it: add `net.ifnames=0 biosdevname=0` to the kernel
+  command line (`grubby --update-kernel=ALL --args="net.ifnames=0
+  biosdevname=0"`, then reboot). Not recommended for exam prep — the real
+  exam won't do this for you, so practicing against predictable naming is
+  the more realistic default.
+
 ### Package & service requirements for task scenarios
 
 The simulator itself needs nothing beyond the Python standard library. But a
