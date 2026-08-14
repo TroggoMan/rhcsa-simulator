@@ -182,4 +182,4 @@ class TestCLIDispatch:
                 adaptive=False,
             )
             main()
-            mock_quick.assert_called_once_with("all", gui_port=8080, gui_bind='0.0.0.0')
+            mock_quick.assert_called_once_with("all", gui_port=None, gui_bind='127.0.0.1')

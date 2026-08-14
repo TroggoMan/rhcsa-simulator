@@ -492,11 +492,23 @@ def start_for_session(session, controller=None, port=DEFAULT_PORT,
         return (None, [])
 
 
-def start_for_session(session, port=DEFAULT_PORT, bind='0.0.0.0'):
-    """Start a panel backed by a live session exposing a `.tasks` list.
+class _TaskListSession:
+    """Minimal `.tasks` provider so start_for_tasks() can reuse
+    start_for_session() for a plain task list — quick/practice/adaptive/learn
+    have no ExamSession, just the tasks themselves."""
+
+    def __init__(self, get_tasks):
+        self._get_tasks = get_tasks
+
+    @property
+    def tasks(self):
+        return self._get_tasks()
+
+
+def start_for_tasks(get_tasks, port=DEFAULT_PORT, bind='0.0.0.0'):
+    """Start a panel backed by a callable returning the current task list.
     Never raises."""
-    return start_for_tasks(lambda: getattr(session, 'tasks', []),
-                            port=port, bind=bind)
+    return start_for_session(_TaskListSession(get_tasks), port=port, bind=bind)
 
 
 def open_panel(tasks, port, bind='0.0.0.0'):
