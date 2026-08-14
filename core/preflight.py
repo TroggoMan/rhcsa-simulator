@@ -31,6 +31,24 @@ REQUIRED_PACKAGES = {
     'tuned': 'tuning profile (tuned-adm) tasks',
 }
 
+# Packages only some exam versions need. v10 dropped the containers section
+# entirely, so warning a v10 candidate about podman would be noise.
+VERSION_PACKAGES = {
+    9: {
+        'podman': 'container tasks (v9 "Manage containers" objectives)',
+        'skopeo': 'remote container image inspection (v9)',
+    },
+}
+
+
+def required_packages(version=None):
+    """REQUIRED_PACKAGES plus anything this exam version adds."""
+    from config import settings
+    version = version if version is not None else settings.get_exam_version()
+    packages = dict(REQUIRED_PACKAGES)
+    packages.update(VERSION_PACKAGES.get(version, {}))
+    return packages
+
 
 def _rpm_installed(pkg):
     """True/False if rpm can answer, None if rpm itself isn't available
@@ -45,7 +63,7 @@ def _rpm_installed(pkg):
 def check_dependencies(packages=None):
     """Return {pkg: True|False|None} for each of REQUIRED_PACKAGES (or the
     given package list). None means installation status is unknown."""
-    packages = packages if packages is not None else REQUIRED_PACKAGES
+    packages = packages if packages is not None else required_packages()
     return {pkg: _rpm_installed(pkg) for pkg in packages}
 
 
@@ -143,7 +161,7 @@ def warn_missing(missing=None):
         f"\n! {len(missing)} exam-relevant package(s) not installed: {', '.join(missing)}"
     ))
     for pkg in missing:
-        print(fmt.dim(f"    {pkg} — {REQUIRED_PACKAGES.get(pkg, '')}"))
+        print(fmt.dim(f"    {pkg} — {required_packages().get(pkg, '')}"))
     print(fmt.warning(
         "  Tasks that rely on them may fail to set up their scenario "
         "(e.g. an httpd task where httpd never runs).\n"

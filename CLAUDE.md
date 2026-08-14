@@ -38,11 +38,19 @@ python3 -m pytest -v            # Verbose output
   collapsed task list that opens in place, Revisit/Done ticks, countdown.
   (The real exam's is a native app; we serve ours over HTTP to a browser
   because that needs nothing installed and works on a headless VM. Don't
-  describe the exam's own window as a browser.) Advisory only — it must
-  never influence grading, which stays driven by real system state. Stdlib
-  `http.server`, no external assets. It must also never mutate the box:
-  notably it reports on firewalld but never opens a port, because firewall
-  tasks are graded.
+  describe the exam's own window as a browser.) Stdlib `http.server`, no
+  external assets.
+- The panel also **drives the session** — submit for grading, per-check
+  results, file a dispute, reset the lab — through named actions in
+  `core/panel_control.py`. Never add a general command channel. **Every
+  request is authenticated** with a per-session token: the panel binds
+  0.0.0.0 by default, so reachability is not authorisation. Reset
+  additionally refuses during a running exam. Validation is only ever
+  *requested* by the panel; it runs on the main exam thread, so there is one
+  grader whichever way it was triggered. Ticks still never influence
+  grading, which stays driven by real system state. The panel must not
+  otherwise mutate the box — notably it reports on firewalld but never opens
+  a port, because firewall tasks are graded.
 - `tasks/` — Task definitions (188 tasks, 25 categories, 8 domains)
 - `validators/` — Safe read-only system validators for each task type
 - `utils/` — AI feedback, progress reports, device detection
@@ -54,6 +62,14 @@ python3 -m pytest -v            # Verbose output
 ## Key Facts
 
 - **Target OS**: RHEL 10 / Rocky Linux 9-10 / AlmaLinux 9-10
+- **Two exam versions.** `--exam-version 9|10` (default 10). v9 adds the
+  `containers` category and MBR partitioning; v10 adds `flatpak` and
+  `systemd_timers`. Gating lives in `config/settings.py`
+  (`VERSION_EXCLUDED_CATEGORIES` for whole categories, `exam_versions` on a
+  task class for one-off cases like MBR) and is enforced in
+  `TaskRegistry.in_scope()`. Objectives/weights per version are in
+  `config/exam_objectives.py` — call `get_objectives()`, never the version
+  dicts directly. A task that is out of scope must never be drawn.
 - **Never hardcode distro-specific names.** Anything that answers "is this the
   box's own OS, or the candidate's practice storage?" goes through
   `utils/system_id.py`, which *probes* — system VGs come from what actually

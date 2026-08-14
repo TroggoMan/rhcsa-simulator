@@ -64,7 +64,76 @@ TASK_CATEGORIES = [
     "swap",
 ]
 
-# EX200 v10 Exam Domains (1-8)
+# ---------------------------------------------------------------------------
+# Exam version (EX200 v9 vs v10)
+#
+# The two exams differ by more than a rename, and not symmetrically:
+#
+#   v9 only   Manage containers (podman/skopeo) — a whole objective section
+#             MBR partition tables ("MBR and GPT disks")
+#             set-GID collaboration directories
+#             "Diagnose and address routine SELinux policy violations"
+#   v10 only  Flatpak repositories and packages
+#             systemd timer units as a scheduling mechanism
+#             (v10 also drops MBR: "List, create, and delete partitions on
+#             GPT disks")
+#
+# Everything else is identical or a wording change (superuser -> privileged
+# access, Red Hat Network -> Red Hat CDN). Rather than fork the task set, one
+# catalogue carries both and the out-of-scope pieces are filtered per version.
+# ---------------------------------------------------------------------------
+
+SUPPORTED_EXAM_VERSIONS = (9, 10)
+DEFAULT_EXAM_VERSION = 10
+
+_active_exam_version = DEFAULT_EXAM_VERSION
+
+
+def get_exam_version():
+    """The EX200 version currently being simulated (9 or 10)."""
+    return _active_exam_version
+
+
+def set_exam_version(version):
+    """Switch the simulated exam version. Raises ValueError on anything else —
+    silently falling back would mean grading against the wrong syllabus."""
+    version = int(version)
+    if version not in SUPPORTED_EXAM_VERSIONS:
+        raise ValueError(
+            "unsupported exam version %r (expected one of %s)"
+            % (version, ', '.join(str(v) for v in SUPPORTED_EXAM_VERSIONS)))
+    global _active_exam_version
+    _active_exam_version = version
+    return _active_exam_version
+
+
+# Categories that are out of scope for a given exam version. Task classes can
+# additionally opt out individually via `exam_versions` (see tasks/base.py) —
+# used where a whole category is in scope but one task inside it is not, as
+# with MBR partitioning.
+VERSION_EXCLUDED_CATEGORIES = {
+    9: {
+        "flatpak",         # no Flatpak objective exists in EX200 v9
+        "systemd_timers",  # v9 scheduling objective is "at and cron" only
+    },
+    10: {
+        "containers",      # v10 dropped the Manage containers section
+    },
+}
+
+
+def excluded_categories(version=None):
+    """Categories out of scope for this exam version."""
+    version = version if version is not None else get_exam_version()
+    return VERSION_EXCLUDED_CATEGORIES.get(version, set())
+
+
+def category_in_scope(category, version=None):
+    return category not in excluded_categories(version)
+
+
+# Exam Domains. 1-8 apply to both versions; 9 exists only in v9, where
+# "Manage containers" is its own objective section.
 EXAM_DOMAINS = {
     1: "Software Management",
     2: "System Setup & Boot",
@@ -74,9 +143,20 @@ EXAM_DOMAINS = {
     6: "Systemd, Services & Processes",
     7: "Security - SELinux & Firewall",
     8: "Automation & Scripting",
+    9: "Containers",
 }
 
-# Map categories to domains
+
+def exam_domains(version=None):
+    """Domain number -> name for this exam version."""
+    version = version if version is not None else get_exam_version()
+    if version == 9:
+        return dict(EXAM_DOMAINS)
+    return {n: name for n, name in EXAM_DOMAINS.items() if n != 9}
+
+
+# Map categories to domains (the union across versions; filtering is done by
+# VERSION_EXCLUDED_CATEGORIES, so a category keeps its domain either way).
 CATEGORY_TO_DOMAIN = {
     "packages": 1, "repos": 1, "flatpak": 1,
     "boot": 2, "boot_recovery": 2, "journalctl": 2,
@@ -86,6 +166,7 @@ CATEGORY_TO_DOMAIN = {
     "services": 6, "systemd_timers": 6, "processes": 6, "time_services": 6, "troubleshooting": 6,
     "selinux": 7, "firewall": 7,
     "scheduling": 8, "scripting": 8,
+    "containers": 9,
 }
 
 # Practice mode configuration
@@ -146,14 +227,15 @@ SAFE_VALIDATION_COMMANDS = {
     # Scheduling
     'crontab', 'atq', 'at',
 
-    # Containers
-    'podman',
-
     # Package management (read-only)
     'rpm', 'dnf', 'yum',
 
     # Flatpak (read-only)
     'flatpak',
+
+    # Containers — read-only subcommands only, enforced in
+    # validators/safe_executor.py (_validate_specific_commands). v9 only.
+    'podman', 'skopeo',
 
     # Time services (read-only)
     'timedatectl', 'chronyc',

@@ -40,6 +40,13 @@ class BaseTask(ABC):
     # fabricated log evidence, or descriptive-only.
     required_packages = []
 
+    # Exam versions this task is in scope for. None = both. Set it when a
+    # category is in scope for both versions but one task inside it is not —
+    # MBR partitioning is v9-only, because v10's objective reads "List,
+    # create, and delete partitions on GPT disks". Whole categories are
+    # filtered by settings.VERSION_EXCLUDED_CATEGORIES instead.
+    exam_versions = None
+
     # True for tasks performed ON the linked second lab machine (over SSH).
     # They are only offered when a lab machine is linked (Setup → Link second
     # lab machine); the registry filters them out otherwise.

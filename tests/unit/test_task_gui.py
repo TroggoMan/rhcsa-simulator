@@ -43,26 +43,69 @@ def tasks():
     ]
 
 
+TOKEN = 'test-token-abc123'
+
+
+class FakeController:
+    """Records what the panel asked for, without doing any of it."""
+
+    def __init__(self):
+        self.calls = []
+        self.reset_allowed = True
+
+    def request_validate(self):
+        self.calls.append(('request_validate',))
+        return {'queued': True, 'status': 'validating'}
+
+    def file_dispute(self, task_id, check_names, argument, submit=True):
+        self.calls.append(('file_dispute', task_id, tuple(check_names),
+                           argument, submit))
+        return {'saved_to': f'/var/lib/disputes/{task_id}.md',
+                'submitted': submit, 'issue_url': 'https://example/issues/1'}
+
+    def reset_lab(self, confirm=False):
+        self.calls.append(('reset_lab', confirm))
+        if not confirm:
+            return {'ok': False, 'error': 'confirmation required'}
+        return {'ok': True, 'message': 'lab reset'}
+
+    def list_disputes(self):
+        self.calls.append(('list_disputes',))
+        return {'disputes': []}
+
+
 @pytest.fixture
-def panel(tasks):
-    """A live panel on an ephemeral loopback port."""
+def controller():
+    return FakeController()
+
+
+@pytest.fixture
+def panel(tasks, controller):
+    """A live panel on an ephemeral loopback port, with auth enabled."""
     p = task_gui.TaskPanel(lambda: task_gui.build_state(tasks, 3600),
-                           port=0, bind='127.0.0.1')
+                           controller=controller, port=0, bind='127.0.0.1',
+                           token=TOKEN)
     urls = p.start()
     assert urls, "panel failed to bind"
-    yield p, urls[0].rstrip('/')
+    base = urls[0].split('?')[0].rstrip('/')
+    yield p, base
     p.stop()
 
 
-def _get(base, path):
-    with urllib.request.urlopen(base + path, timeout=5) as r:
+def _get(base, path, token=TOKEN):
+    headers = {'X-Panel-Token': token} if token is not None else {}
+    req = urllib.request.Request(base + path, headers=headers)
+    with urllib.request.urlopen(req, timeout=5) as r:
         return r.status, r.read().decode()
 
 
-def _post(base, path, payload):
+def _post(base, path, payload, token=TOKEN):
+    headers = {'Content-Type': 'application/json'}
+    if token is not None:
+        headers['X-Panel-Token'] = token
     req = urllib.request.Request(
         base + path, data=json.dumps(payload).encode(),
-        headers={'Content-Type': 'application/json'}, method='POST')
+        headers=headers, method='POST')
     with urllib.request.urlopen(req, timeout=5) as r:
         return r.status, json.loads(r.read().decode())
 
@@ -202,10 +245,11 @@ def test_unknown_route_is_404(panel):
     assert e.value.code == 404
 
 
-def test_panel_serves_no_shell_or_validation_route(panel):
-    """The panel is read-mostly by design: exam questions and ticks only."""
+def test_panel_exposes_no_shell_route(panel):
+    """The panel drives the session through named actions only — there is no
+    general command channel, and never should be."""
     _, base = panel
-    for path in ('/api/validate', '/api/exec', '/api/grade', '/shell'):
+    for path in ('/api/exec', '/api/run', '/api/command', '/shell'):
         with pytest.raises(urllib.error.HTTPError) as e:
             _get(base, path)
         assert e.value.code == 404, path
@@ -218,10 +262,10 @@ def test_state_provider_failure_degrades_instead_of_500(tasks):
     def boom():
         raise RuntimeError("session went away")
 
-    p = task_gui.TaskPanel(boom, port=0, bind='127.0.0.1')
+    p = task_gui.TaskPanel(boom, port=0, bind='127.0.0.1', token='')
     urls = p.start()
     try:
-        status, body = _get(urls[0].rstrip('/'), '/api/state')
+        status, body = _get(urls[0].rstrip('/'), '/api/state', token=None)
         assert status == 200
         assert json.loads(body)['tasks'] == []
     finally:
@@ -230,12 +274,12 @@ def test_state_provider_failure_degrades_instead_of_500(tasks):
 
 def test_port_already_in_use_returns_no_urls(tasks):
     first = task_gui.TaskPanel(lambda: task_gui.build_state(tasks),
-                               port=0, bind='127.0.0.1')
+                               port=0, bind='127.0.0.1', token='')
     assert first.start()
     port = first._httpd.server_address[1]
     try:
         second = task_gui.TaskPanel(lambda: task_gui.build_state(tasks),
-                                    port=port, bind='127.0.0.1')
+                                    port=port, bind='127.0.0.1', token='')
         assert second.start() == [], "should fail quietly, not raise"
         assert second.running is False
     finally:
@@ -244,7 +288,7 @@ def test_port_already_in_use_returns_no_urls(tasks):
 
 def test_stop_is_idempotent(tasks):
     p = task_gui.TaskPanel(lambda: task_gui.build_state(tasks),
-                           port=0, bind='127.0.0.1')
+                           port=0, bind='127.0.0.1', token='')
     p.start()
     p.stop()
     p.stop()
@@ -259,10 +303,13 @@ def test_start_for_session_never_raises():
 
     panel, urls = task_gui.start_for_session(BadSession(), port=0,
                                              bind='127.0.0.1')
+    if panel:
+        panel.token = panel.token  # keep the generated token for the request
     try:
         # It binds fine; the failure only shows up per-request, degraded.
         if urls:
-            status, body = _get(urls[0].rstrip('/'), '/api/state')
+            base = urls[0].split('?')[0].rstrip('/')
+            status, body = _get(base, '/api/state', token=panel.token)
             assert status == 200
             assert json.loads(body)['tasks'] == []
     finally:
@@ -391,3 +438,107 @@ def test_theme_toggle_present_and_overrides_the_os_preference(panel):
     # The OS preference must not beat an explicit choice.
     assert ':root:not([data-theme])' in body
     assert 'localStorage' in body
+
+
+# ── authentication ──────────────────────────────────────────────────────────
+
+def test_requests_without_the_token_are_refused(panel):
+    """The panel binds 0.0.0.0 by default and can now reset the lab and file
+    GitHub issues — reachability is not authorisation."""
+    _, base = panel
+    for path in ('/', '/api/state'):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            _get(base, path, token=None)
+        assert e.value.code == 403, path
+
+
+def test_wrong_token_refused(panel):
+    _, base = panel
+    with pytest.raises(urllib.error.HTTPError) as e:
+        _get(base, '/api/state', token='not-the-token')
+    assert e.value.code == 403
+
+
+def test_control_endpoints_require_the_token(panel, controller):
+    _, base = panel
+    for path, body in [('/api/validate', {}),
+                       ('/api/reset-lab', {'confirm': True}),
+                       ('/api/dispute', {'task_id': 'x', 'argument': 'y'})]:
+        with pytest.raises(urllib.error.HTTPError) as e:
+            _post(base, path, body, token=None)
+        assert e.value.code == 403, path
+    assert controller.calls == [], "an unauthorised request reached the controller"
+
+
+def test_token_accepted_in_the_query_string(panel):
+    """The URL the exam prints carries ?t=, so a plain browser GET works."""
+    _, base = panel
+    status, _ = _get(base + f'/api/state?t={TOKEN}', '', token=None)
+    assert status == 200
+
+
+def test_urls_carry_the_token(tasks, controller):
+    p = task_gui.TaskPanel(lambda: task_gui.build_state(tasks),
+                           controller=controller, port=0, bind='127.0.0.1')
+    try:
+        urls = p.start()
+        assert urls and all('?t=' in u for u in urls)
+        assert len(p.token) >= 16
+    finally:
+        p.stop()
+
+
+# ── control actions ─────────────────────────────────────────────────────────
+
+def test_submit_queues_validation(panel, controller):
+    _, base = panel
+    status, body = _post(base, '/api/validate', {})
+    assert status == 200
+    assert body['queued'] is True
+    assert ('request_validate',) in controller.calls
+
+
+def test_reset_requires_confirmation(panel, controller):
+    """Destructive, and reachable over the network — it must not fire on a
+    bare request."""
+    _, base = panel
+    _, body = _post(base, '/api/reset-lab', {})
+    assert body['ok'] is False
+    assert 'confirm' in body['error'].lower()
+
+    _, body = _post(base, '/api/reset-lab', {'confirm': True})
+    assert body['ok'] is True
+
+
+def test_dispute_passes_checks_and_argument_through(panel, controller):
+    _, base = panel
+    _, body = _post(base, '/api/dispute', {
+        'task_id': 'lvm_001', 'checks': ['size_correct'],
+        'argument': 'the check greps for the wrong fs', 'submit': False})
+    assert body['saved_to'].endswith('lvm_001.md')
+    call = [c for c in controller.calls if c[0] == 'file_dispute'][0]
+    assert call[1] == 'lvm_001'
+    assert call[2] == ('size_correct',)
+    assert call[4] is False
+
+
+def test_actions_report_501_without_a_controller(tasks):
+    """A panel with no controller must say so rather than pretend it acted."""
+    p = task_gui.TaskPanel(lambda: task_gui.build_state(tasks),
+                           port=0, bind='127.0.0.1', token='')
+    try:
+        p.start()
+        base = p.urls()[0].split('?')[0].rstrip('/')
+        with pytest.raises(urllib.error.HTTPError) as e:
+            _post(base, '/api/validate', {}, token=None)
+        assert e.value.code == 501
+    finally:
+        p.stop()
+
+
+def test_page_exposes_the_control_ui(panel):
+    _, base = panel
+    _, body = _get(base, '/')
+    for marker in ('id="submit"', 'id="resetlab"', 'data-act="dispute"',
+                   'X-Panel-Token'):
+        assert marker in body, marker
