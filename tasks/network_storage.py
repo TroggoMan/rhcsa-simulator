@@ -37,6 +37,8 @@ def _nfs_source(mount_point):
 class MountNFSShareTask(BaseTask):
     """Mount an NFS share manually."""
 
+    requires_nfs_server = True
+
     def __init__(self):
         super().__init__(
             id="nfs_mount_001",
@@ -154,6 +156,8 @@ class MountNFSShareTask(BaseTask):
 @TaskRegistry.register("network_storage")
 class PersistentNFSMountTask(BaseTask):
     """Configure persistent NFS mount in fstab."""
+
+    requires_nfs_server = True
 
     def __init__(self):
         super().__init__(
@@ -314,6 +318,8 @@ class PersistentNFSMountTask(BaseTask):
 @TaskRegistry.register("network_storage")
 class ConfigureAutofsTask(BaseTask):
     """Configure autofs for automatic mounting."""
+
+    requires_nfs_server = True
 
     def __init__(self):
         super().__init__(
@@ -585,6 +591,8 @@ class ConfigureAutofsTask(BaseTask):
 @TaskRegistry.register("network_storage")
 class AutofsHomeDirectoriesTask(BaseTask):
     """Configure autofs for NFS home directories."""
+
+    requires_nfs_server = True
 
     def __init__(self):
         super().__init__(

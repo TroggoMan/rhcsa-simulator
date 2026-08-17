@@ -151,6 +151,21 @@ class TaskRegistry:
                 if not task_classes:
                     return None
 
+        # NFS tasks are only offered once a real NFS server is configured —
+        # otherwise generate() falls back to an unreachable placeholder host
+        # and the task can never be completed.
+        if any(getattr(tc, 'requires_nfs_server', False) for tc in task_classes):
+            try:
+                from core import nfs_server
+                has_server = bool(nfs_server.load_config())
+            except Exception:
+                has_server = False
+            if not has_server:
+                task_classes = [tc for tc in task_classes
+                                if not getattr(tc, 'requires_nfs_server', False)]
+                if not task_classes:
+                    return None
+
         # Tasks flagged as bad ("marked for potential removal") are never
         # offered, in any mode. Manage flags in Setup → Task Statistics.
         try:

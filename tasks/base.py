@@ -52,6 +52,14 @@ class BaseTask(ABC):
     # lab machine); the registry filters them out otherwise.
     requires_lab_machine = False
 
+    # True for tasks that mount/automount from a *real* NFS server
+    # (core/nfs_server.py). Without one configured (Setup → Configure remote
+    # NFS server) there is nothing reachable to mount, so generate() falls
+    # back to a placeholder hostname like server1.example.com that can never
+    # succeed — the task would be unpassable. The registry filters these out
+    # until a server is configured, exactly like requires_lab_machine.
+    requires_nfs_server = False
+
     def __init__(self, id, category, difficulty, points):
         self.id = id
         self.category = category
