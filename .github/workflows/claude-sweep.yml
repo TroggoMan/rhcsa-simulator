@@ -1,0 +1,123 @@
+name: Claude sweep scheduler
+
+# Companion to claude-issue.yml / claude-resume.yml. All three share the
+# claude-work concurrency group (one subscription budget, so runs are
+# serialized). That queue only holds ONE pending run at a time: if issue A
+# is running and issues B then C get labeled/mentioned while it's still
+# going, B's queued run is silently cancelled (not retried) when C's arrives,
+# and nothing ever re-triggers B. It's dropped, not skipped-and-later-run.
+#
+# This workflow polls every 15 minutes (offset from claude-resume.yml's :00
+# tick so they don't collide) for open `claude`-labeled issues that never
+# got a real attempt — no run with conclusion success/failure, only
+# skipped/cancelled ones or none at all — and are past a grace period (so a
+# just-labeled issue gets its normal shot first). It resumes at most ONE
+# per tick, same reasoning as claude-resume.yml: parallel runs would just
+# re-trip the shared usage limit.
+#
+# Must live on the DEFAULT branch for the schedule to fire.
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: claude-work
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+env:
+  # How long a `claude` label must have been on an issue before the sweeper
+  # will touch it — gives the normal labeled/@claude trigger first refusal.
+  GRACE_SECONDS: 600
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      actions: read
+    outputs:
+      found: ${{ steps.scan.outputs.found }}
+      issue: ${{ steps.scan.outputs.issue }}
+    steps:
+      - name: Find a claude-labeled issue that never got a real run
+        id: scan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+          # Don't compete with a run that's already active/queued — it shares
+          # our concurrency group, so dispatching now would just bump it.
+          active=$(gh run list -R "$REPO" --limit 20 \
+                     --json workflowName,status \
+                     --jq '[.[] | select(.workflowName == "Claude issue worker"
+                                          or .workflowName == "Claude resume scheduler"
+                                          or .workflowName == "Claude sweep scheduler")
+                                 | select(.status == "in_progress" or .status == "queued" or .status == "waiting")]
+                           | length')
+          if [ "$active" -gt 0 ]; then
+            echo "A claude-work run is already active/queued; nothing to sweep this tick."
+            exit 0
+          fi
+
+          now=$(date +%s)
+
+          for n in $(gh issue list -R "$REPO" --label claude --state open \
+                       --json number,labels \
+                       --jq '[.[] | select([.labels[].name] | index("claude-resume-pending") | not) | .number]
+                             | sort | .[]'); do
+            labeled_at=$(gh api "repos/$REPO/issues/$n/timeline" --paginate \
+                           --jq '[.[] | select(.event == "labeled" and .label.name == "claude")]
+                                 | last.created_at // empty')
+            if [ -z "$labeled_at" ]; then
+              continue
+            fi
+            age=$(( now - $(date -d "$labeled_at" +%s) ))
+            if [ "$age" -lt "$GRACE_SECONDS" ]; then
+              echo "Issue #$n labeled claude ${age}s ago — still within the grace period."
+              continue
+            fi
+
+            title=$(gh issue view "$n" -R "$REPO" --json title --jq '.title')
+            real_run=$(gh run list -R "$REPO" --workflow claude-issue.yml --limit 100 \
+                         --json displayTitle,conclusion \
+                         --jq --arg t "$title" \
+                         '[.[] | select(.displayTitle == $t)
+                                | select(.conclusion == "success" or .conclusion == "failure")]
+                          | length')
+            if [ "$real_run" -gt 0 ]; then
+              echo "Issue #$n already had a real run; leaving it alone."
+              continue
+            fi
+
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "issue=$n" >> "$GITHUB_OUTPUT"
+            echo "Issue #$n: labeled claude ${age}s ago, no completed run found — likely displaced from the concurrency queue by another issue."
+            break
+          done
+
+      - name: Note why this run is starting late
+        if: steps.scan.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment "${{ steps.scan.outputs.issue }}" --body \
+            "🔁 Picking this up now — an earlier attempt was likely queued behind another issue's run and got displaced rather than retried (only one run waits in the shared queue at a time). The sweep scheduler checks for this every 15 minutes."
+
+  work:
+    needs: scan
+    if: needs.scan.outputs.found == 'true'
+    uses: ./.github/workflows/claude-worker.yml
+    with:
+      issue_number: ${{ needs.scan.outputs.issue }}
+    secrets: inherit
