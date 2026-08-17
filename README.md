@@ -341,7 +341,7 @@ sudo rhcsa-simulator    # interactive menu
 | `4` | **Dashboard** | Stats, history, weak areas |
 | `5` | **Export Report** | Write a progress report to `data/` |
 | `6` | **Result History** | Drill into past exams (press `d` on a task to dispute a check) |
-| `S` | **Setup** | Practice disks, Reset Machine, remote NFS server, DNF-history |
+| `S` | **Setup** | Practice disks, Reset Machine, NFS server, DNF-history |
 | `0` | Exit | |
 
 ### Command-line shortcuts
@@ -420,12 +420,13 @@ collide. Loop images live in `/var/lib/rhcsa-simulator/loops/`.
   and task starting-states to their originals, then strips every practice
   artifact: lab files, practice disks & swap, third-party DNF repos, Flatpak
   apps/remotes, scheduled jobs, autofs maps, tuned changes, practice
-  users/groups, and remote NFS exports — unmounting every non-system mount
+  users/groups, and NFS exports — unmounting every non-system mount
   first. **Preserves** the simulator, your GitHub/SSH connectivity
   (`~/.config/gh`, `~/.ssh`, git config), networking, firewall, SELinux, the
   OS, and all real accounts. Previews everything and requires typing `RESET`.
-- **Configure remote NFS server** — SSH into a RHEL box you control and provision
-  real, seeded NFS exports for the network-storage tasks (refreshed each exam).
+- **Configure NFS server** — provision real, seeded NFS exports for the
+  network-storage tasks (refreshed each exam), either locally on this
+  machine (no second box needed) or over SSH on a RHEL box you control.
 - **Link second lab machine** — register a second box for the Boot Rescue Lab
   and remote scenarios (see below). Can be the same VM as the NFS server.
 - **Task Statistics** — per-category counts, plus the list of tasks **flagged

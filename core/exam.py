@@ -119,7 +119,7 @@ class ExamSession:
         # (no task should already be passing before the candidate starts).
         self._sanity_check_tasks()
 
-        # Refresh the remote NFS server's exports so this exam starts clean.
+        # Refresh the NFS server's exports so this exam starts clean.
         self._reprovision_nfs()
 
         # Bring the task panel up before the sheet is shown, so the URL is
@@ -291,7 +291,7 @@ class ExamSession:
         return any(getattr(t, 'category', '') == 'network_storage' for t in self.tasks)
 
     def _reprovision_nfs(self):
-        """If a remote NFS server is configured and this exam has NFS tasks,
+        """If an NFS server is configured and this exam has NFS tasks,
         refresh its exports so the run starts from clean, seeded shares."""
         if not self._has_nfs_tasks():
             return
@@ -314,7 +314,7 @@ class ExamSession:
             tail = (output or '').strip().splitlines()[-2:]
             for line in tail:
                 print(fmt.dim(f"      {line}"))
-            print(fmt.dim("      Fix via Setup → Configure remote NFS server → Test connection."))
+            print(fmt.dim("      Fix via Setup → Configure NFS server → Test connection."))
 
     # NOTE: there is deliberately NO automatic teardown at exam end. The
     # environment (injected faults, the candidate's work, NFS mounts) is left

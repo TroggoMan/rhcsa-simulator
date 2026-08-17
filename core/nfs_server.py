@@ -1,22 +1,33 @@
 """
-Remote NFS server provisioning for NFS practice tasks.
+NFS server provisioning for NFS practice tasks.
 
 The NFS tasks (tasks/network_storage.py) need a *real* NFS server to mount
 from, otherwise the candidate can't actually complete or test them. This module
-lets Setup SSH into a RHEL box the user names and provision it as an NFS server
-(install nfs-utils, create + populate exports, write /etc/exports.d, run
-exportfs, enable nfs-server, open the firewall), record it, and re-provision /
-tear the exports down around each exam so every run starts clean.
+lets Setup provision one of two ways:
+
+  * Local  — provision THIS machine as its own NFS server (loopback). No
+    second box needed; candidates who only have one machine can still
+    practice mount/fstab/autofs against a real, reachable export.
+  * Remote — SSH into a RHEL box the user names and provision it the same
+    way, over the network. Closer to how the real exam's second NFS server
+    behaves.
+
+Either way the provisioning does the same thing: install nfs-utils, create +
+populate exports, write /etc/exports.d, run exportfs, enable nfs-server, open
+the firewall. The config records which mode was used, and re-provision /
+teardown around each exam dispatch to the right one so every run starts clean.
 
 Design notes:
-  * The remote scripts are defensive — they do NOT `set -e` and die on the
-    first hiccup. They auto-create missing directories for *pre-existing* stale
-    exports (so a leftover entry like `/nfsdata3` can't abort our run), tolerate
-    unrelated exportfs warnings, and only report success once OUR exports are
-    actually active. Failures come back as a single RHCSA_NFS_FAIL: <reason>.
-  * Auth is delegated to the system `ssh`. Credentials may optionally be saved
-    (root-only 0600 config) so exams can re-provision unattended; otherwise we
-    rely on key-based auth.
+  * The provisioning scripts are defensive — they do NOT `set -e` and die on
+    the first hiccup. They auto-create missing directories for *pre-existing*
+    stale exports (so a leftover entry like `/nfsdata3` can't abort our run),
+    tolerate unrelated exportfs warnings, and only report success once OUR
+    exports are actually active. Failures come back as a single
+    RHCSA_NFS_FAIL: <reason>.
+  * Remote auth is delegated to the system `ssh`. Credentials may optionally
+    be saved (root-only 0600 config) so exams can re-provision unattended;
+    otherwise we rely on key-based auth. Local mode runs the identical script
+    as a local root shell — no auth needed, we're already root.
 """
 
 import os
@@ -26,6 +37,8 @@ import subprocess
 
 STATE_DIR = '/var/lib/rhcsa-simulator'
 CONFIG_PATH = os.path.join(STATE_DIR, 'nfs_server.conf')
+
+LOCAL_HOST = 'localhost'
 
 EXPORT_BASE = '/exports/rhcsa'
 # (relative-name, export-options) — populated read/write so candidates can test.
@@ -174,9 +187,11 @@ def load_config():
         return None
 
 
-def save_config(host, user, exports, password=None):
+def save_config(host, user, exports, password=None, local=False):
     os.makedirs(STATE_DIR, exist_ok=True)
     cfg = {'host': host, 'user': user, 'exports': exports}
+    if local:
+        cfg['local'] = True
     if password:
         cfg['password'] = password
     # Open 0600 from the start so a saved password is never world-readable.
@@ -271,6 +286,31 @@ def _parse(rc, output):
     return True, exports, output
 
 
+def _run_local(script, timeout=600):
+    """Run `script` as a local root shell — same contract as _run_remote
+    (returns (returncode, combined_output) or (None, message) on launch
+    error), just without SSH in the way."""
+    try:
+        res = subprocess.run(['bash', '-s'], input=script, text=True,
+                             capture_output=True, timeout=timeout)
+        return res.returncode, (res.stdout or '') + (res.stderr or '')
+    except subprocess.TimeoutExpired:
+        return None, 'Timed out provisioning the local NFS server.'
+
+
+def provision_local():
+    """Provision (or re-provision) THIS machine as its own NFS server — no
+    second box needed. Returns (ok, exports, output)."""
+    rc, out = _run_local(_provision_script())
+    return _parse(rc, out)
+
+
+def remove_local_exports():
+    """Tear our exports down on this machine. Returns (ok, output)."""
+    rc, out = _run_local(_remove_script())
+    return (rc == 0 and _DONE in out), out
+
+
 def copy_ssh_key(host, user):
     """Best-effort ssh-copy-id so subsequent runs are passwordless. Interactive."""
     try:
@@ -327,8 +367,10 @@ def unmount_client_mounts(host=None):
 
 
 def remove_exports(host=None, user='root', password=None, batch=True):
-    """Tear our exports down on the server. Returns (ok, output)."""
+    """Tear our exports down on the server (local or remote). Returns (ok, output)."""
     cfg = load_config()
+    if cfg and cfg.get('local') and host is None:
+        return remove_local_exports()
     if host is None:
         if not cfg:
             return False, 'no NFS server configured'
@@ -339,11 +381,14 @@ def remove_exports(host=None, user='root', password=None, batch=True):
 
 
 def reprovision_from_config(batch=True):
-    """Re-provision using saved creds (unattended exam refresh).
-    Returns (ok, exports_or_None, output) or (None, None, reason) if unusable."""
+    """Re-provision using the saved config — local or remote (unattended exam
+    refresh). Returns (ok, exports_or_None, output) or (None, None, reason)
+    if unusable."""
     cfg = load_config()
     if not cfg:
         return None, None, 'no NFS server configured'
+    if cfg.get('local'):
+        return provision_local()
     pw = cfg.get('password')
     # Unattended: needs a saved password OR key-based auth (batch mode).
     ok, exports, out = provision(cfg['host'], cfg.get('user', 'root'),
