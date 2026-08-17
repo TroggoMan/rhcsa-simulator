@@ -1,0 +1,97 @@
+name: Bug report
+description: A task, checker, or the simulator itself is doing something wrong.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing this — real bug reports from candidates are how the
+        task catalog gets more exam-accurate over time.
+
+        **If a specific check just scored you wrong on a task you believe you
+        completed correctly**, use the built-in dispute flow instead of this
+        form: in **Result History**, open the task and press **`d`**. It
+        automatically captures live evidence (`ls -Z`, `getfacl`, `lsblk -f`,
+        etc.) and an AI reviewer inspects the exact validator line — that gets
+        looked at faster and with better evidence than a manual report can.
+        Only use this form for disputes if the in-app flow isn't available to
+        you (e.g. `gh` isn't set up and you have no browser).
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did you encounter this?
+      description: Which mode were you in when you hit the bug?
+      options:
+        - Mock Exam (--exam / task panel)
+        - Quick Practice (--quick)
+        - Practice Mode (--practice CATEGORY)
+        - Adaptive Mode (--adaptive, SM-2 spaced repetition)
+        - Learn Mode (--learn)
+        - Result History (reviewing or disputing a past result)
+        - Setup menu (practice disks, Reset Machine, NFS server, link second machine)
+        - Boot Rescue Lab
+        - Installation (install.sh)
+        - Something else / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID / category (if known)
+      description: >-
+        Shown in the task detail view or Result History. Run
+        `rhcsa-simulator --list-categories` if you only know the category
+        name. Leave blank if this isn't about a specific task.
+      placeholder: e.g. sudo_002, or "users_groups"
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: Be as specific as you can — exact commands, exact output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps if possible, from a fresh session/reset.
+      placeholder: |
+        1. sudo rhcsa-simulator --practice users_groups
+        2. Complete the task by doing X
+        3. Validate — see wrong result
+
+  - type: textarea
+    id: validation_output
+    attributes:
+      label: Validation output / error message
+      description: Paste terminal output. It'll be rendered as a code block automatically.
+      render: shell
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS / environment
+      description: OS + version, and whether it's a VM you can throw away.
+      placeholder: e.g. Rocky Linux 10.2, VirtualBox VM
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I'm on the latest version (`git pull` before reproducing)
+          required: false
+        - label: I searched existing issues and this isn't a duplicate
+          required: false

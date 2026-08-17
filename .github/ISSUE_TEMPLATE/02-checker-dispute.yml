@@ -1,0 +1,83 @@
+name: Checker dispute (manual)
+description: >-
+  A validator scored you wrong on a task, and the in-app dispute flow isn't
+  available to you.
+title: "[Dispute]: "
+labels: ["checker-dispute"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Use this only as a fallback.** The built-in flow — **Result
+        History**, open the task, press **`d`** — automatically captures live
+        system-state evidence and points the AI reviewer at the exact
+        `validate()` line, which gets your dispute a much faster and better-
+        evidenced review. Use this manual form only if `gh` isn't set up on
+        your box and you have no browser to use the pre-filled issue link the
+        app prints instead.
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did you encounter this?
+      options:
+        - Mock Exam (--exam / task panel)
+        - Quick Practice (--quick)
+        - Practice Mode (--practice CATEGORY)
+        - Adaptive Mode (--adaptive, SM-2 spaced repetition)
+        - Result History (reviewing a past result)
+        - Something else / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID
+      description: Shown in the task detail view or Result History.
+      placeholder: e.g. sudo_002
+    validations:
+      required: true
+
+  - type: input
+    id: score
+    attributes:
+      label: Score you received
+      placeholder: e.g. 3/10 points (30%) - FAIL
+
+  - type: input
+    id: checker_source
+    attributes:
+      label: Checker source (if you know it)
+      description: File, class, and validate() line — makes the review much faster.
+      placeholder: e.g. tasks/users_groups.py -> ConfigureSudoTask.validate() around line 586
+
+  - type: textarea
+    id: disputed_checks
+    attributes:
+      label: Which check(s) do you believe are wrong?
+      description: Copy the exact line(s) from the validation output.
+      placeholder: "✗ [0/2pt] User 'operator84' does not exist"
+    validations:
+      required: true
+
+  - type: textarea
+    id: argument
+    attributes:
+      label: Why do you believe the checker is wrong?
+      description: What did you actually do, and why should it have passed (or not passed)?
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence — live command output
+      description: >-
+        Paste whatever read-only output backs up your argument (`getent
+        passwd`, `ls -Z`, `getfacl`, `systemctl status`, the contents of a
+        config file, etc.). This stands in for what the in-app tool would
+        have captured automatically.
+      render: shell
+    validations:
+      required: true

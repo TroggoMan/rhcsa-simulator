@@ -1,0 +1,32 @@
+name: Question
+description: Something is unclear, or you're not sure if it's a bug.
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: dropdown
+    id: where
+    attributes:
+      label: What are you asking about?
+      options:
+        - Mock Exam (--exam / task panel)
+        - Quick Practice (--quick)
+        - Practice Mode (--practice CATEGORY)
+        - Adaptive Mode (--adaptive, SM-2 spaced repetition)
+        - Learn Mode (--learn)
+        - Setup / installation
+        - Boot Rescue Lab
+        - Progress snapshots (export/import code)
+        - Something else / general
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Anything that helps answer it — what you've tried, what you expected, relevant output.

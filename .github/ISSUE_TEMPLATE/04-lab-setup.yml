@@ -1,0 +1,60 @@
+name: Installation / lab setup problem
+description: install.sh, the exam task panel, practice disks, or the Boot Rescue Lab isn't working.
+title: "[Setup]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For task-specific problems (a checker or a task's starting state is
+        wrong), use **Bug report** instead — this template is for getting the
+        simulator itself running.
+
+  - type: dropdown
+    id: step
+    attributes:
+      label: Which step is failing?
+      options:
+        - install.sh (initial install)
+        - Launching the simulator (sudo rhcsa-simulator ...)
+        - Exam task panel (--gui / browser window)
+        - Practice disks (Setup menu, loop devices)
+        - Reset Machine
+        - Configure remote NFS server
+        - Link second lab machine / Boot Rescue Lab
+        - Progress snapshot (export/import code)
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS / environment
+      description: OS + version, VM or bare metal, hypervisor if relevant.
+      placeholder: e.g. Rocky Linux 10.2, fresh VirtualBox VM, minimal install
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Exact command you ran
+      placeholder: e.g. sudo ./install.sh --yes
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Full output / error message
+      description: The more complete the better — don't trim unless it's genuinely huge.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you already tried?
+      description: >-
+        Check the README's Troubleshooting section and Package & service
+        requirements table first — link or mention what you already checked.

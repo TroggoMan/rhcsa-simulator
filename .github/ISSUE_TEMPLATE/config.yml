@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Checker dispute (in-app — preferred)
+    url: https://github.com/TroggoMan/rhcsa-simulator#disputing-a-validator-result-ai-checker-disputes
+    about: >-
+      Think a specific check scored you wrong? File it from Result History
+      (press d on a task) instead of opening an issue — it auto-captures
+      evidence and gets a much faster, better-informed review.
+  - name: Troubleshooting section (README)
+    url: https://github.com/TroggoMan/rhcsa-simulator#troubleshooting
+    about: Check here first for install/launch problems — several common ones are already documented.
