@@ -35,7 +35,7 @@ DISPUTE_LABEL = 'checker-dispute'
 
 # Used to build the browser fallback URL when the git remote can't be read
 # (e.g. a tarball copy on an exam box with no origin remote).
-GITHUB_REPO_FALLBACK = 'justbest23/rhcsa-simulator'
+GITHUB_REPO_FALLBACK = 'TroggoMan/rhcsa-simulator'
 
 _MAX_OUTPUT = 4000  # chars kept per command, to keep issues readable
 

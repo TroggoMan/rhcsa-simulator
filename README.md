@@ -1,5 +1,6 @@
 # RHCSA Mock Exam Simulator
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/troggman)
 
 A command-line **RHCSA EX200 v10** (Red Hat Enterprise Linux 10) exam simulator.
 It generates tasks, sets up each task's starting state, validates your real
@@ -22,7 +23,7 @@ Smashed your RHCSA exam and looking for the next step? Check out https://github.
 ```bash
 # On a RHEL 10 / Rocky 10 / Alma 10 VM, as root:
 sudo -i
-git clone https://github.com/justbest23/rhcsa-simulator.git
+git clone https://github.com/TroggoMan/rhcsa-simulator.git
 cd rhcsa-simulator
 ./install.sh                 # interactive (use --yes for unattended)
 rhcsa-simulator --exam       # mock exam — task panel opens in its own window
