@@ -157,10 +157,15 @@ class ConfigureChronydTask(BaseTask):
 
     def generate(self, **params):
         """Generate chrony configuration task."""
+        # Real, reachable NTP sources only — an example.com/.org placeholder
+        # here can never actually sync (see issue #92), and check 4 below
+        # validates real synchronization against whatever server is
+        # configured.
         ntp_servers = [
-            'time.example.com',
-            'ntp.example.org',
-            'clock.redhat.com'
+            '0.rhel.pool.ntp.org',
+            '1.rhel.pool.ntp.org',
+            '2.rhel.pool.ntp.org',
+            'time.cloudflare.com',
         ]
         self.ntp_server = params.get('server', random.choice(ntp_servers))
 
