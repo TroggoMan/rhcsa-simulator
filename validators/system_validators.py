@@ -303,6 +303,13 @@ def get_interface_state(interface):
             return 'UP'
         elif 'state DOWN' in result.stdout:
             return 'DOWN'
+        elif 'state UNKNOWN' in result.stdout:
+            # Virtual interfaces (dummy, loopback, ...) have no real carrier
+            # to sense, so the kernel reports operstate UNKNOWN even while
+            # administratively up. Fall back to the LOWER_UP flag, which is
+            # set once such an interface is brought up.
+            first_line = result.stdout.split('\n', 1)[0]
+            return 'UP' if 'LOWER_UP' in first_line else 'DOWN'
     return None
 
 

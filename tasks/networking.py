@@ -220,15 +220,23 @@ class ConfigureStaticIPTask(BaseTask):
             checks.append(ValidationCheck("ip_address_set", False, 0,
                           f"IP is {actual_ip}, expected {self.ip_address}", max_points=5))
 
-        # 2. Gateway reachable in routing table (3 pts)
-        gw = get_default_gateway()
-        if gw == self.gateway:
+        # 2. Gateway configured on the connection profile (3 pts)
+        #
+        # The practice interface (dummy0) is deliberately set up with
+        # ipv4.never-default so it can never hijack the box's real default
+        # route out from under the candidate's live connection. That means
+        # `ip route show default` will never reflect dummy0's gateway even
+        # when it's configured correctly, so check the saved profile itself
+        # instead of the active routing table.
+        conn = get_nmcli_connection_info(self.connection_name)
+        configured_gw = conn.get('ipv4.gateway') if conn else None
+        if configured_gw == self.gateway:
             checks.append(ValidationCheck("gateway_set", True, 3,
-                          f"Gateway {self.gateway} is active"))
+                          f"Gateway {self.gateway} configured on {self.connection_name}"))
             total += 3
         else:
             checks.append(ValidationCheck("gateway_set", False, 0,
-                          f"Gateway is {gw}, expected {self.gateway}", max_points=3))
+                          f"Gateway is {configured_gw}, expected {self.gateway}", max_points=3))
 
         # 3. DNS configured (2 pts)
         dns_list = get_dns_servers()
@@ -241,7 +249,6 @@ class ConfigureStaticIPTask(BaseTask):
                           f"DNS {self.dns} not in resolv.conf (found {dns_list})", max_points=2))
 
         # 4. Persistent config via nmcli (3 pts)
-        conn = get_nmcli_connection_info(self.connection_name)
         if conn and conn.get('ipv4.method') == 'manual':
             checks.append(ValidationCheck("method_manual", True, 3,
                           "ipv4.method is 'manual' (persistent)"))
