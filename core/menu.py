@@ -5,6 +5,7 @@ Streamlined 9-option interface with ResultsDB dashboard.
 """
 
 import sys
+import textwrap
 from utils import formatters as fmt
 from config import settings
 
@@ -787,15 +788,17 @@ For RHCSA exam info: https://www.redhat.com/rhcsa
             input("\nPress Enter to return...")
             return
 
+        wrapped_code = textwrap.fill(code, width=80)
+
         print("Copy this code and keep it safe — import it on any new install:")
         print()
-        print(code)
+        print(wrapped_code)
         print()
-        # Also save to a file for convenience (survives until snapshot revert).
+
         try:
             path = settings.DATA_DIR / "progress_code.txt"
             with open(path, 'w') as f:
-                f.write(code + "\n")
+                f.write(wrapped_code + "\n")
             print(fmt.dim(f"Also saved to {path} ({len(code)} chars)."))
         except Exception:
             pass

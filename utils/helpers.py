@@ -116,7 +116,6 @@ def parse_percentage(value):
 
     return 0.0
 
-
 def confirm_action(prompt, default=False):
     """
     Ask user for confirmation.
@@ -130,15 +129,23 @@ def confirm_action(prompt, default=False):
     """
     suffix = " [Y/n]: " if default else " [y/N]: "
     while True:
-        response = input(prompt + suffix).strip().lower()
-        if response == '':
-            return default
-        if response in ['y', 'yes']:
-            return True
-        if response in ['n', 'no']:
-            return False
-        print("Please answer 'y' or 'n'")
+        try:
+            response = input(prompt + suffix).strip().lower()
 
+            if not response:
+                return default
+            if response in ['y', 'yes', 'д', 'да']:
+                return True
+            if response in ['n', 'no', 'н', 'нет']:
+                return False
+
+            print("Please answer y or n.")
+
+        except UnicodeDecodeError:
+            print("\n[!] Input encoding error (appears to be a corrupted character or a Russian keyboard layout). Please try again.")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return default
 
 def select_task_count(default=5, minimum=4, maximum=20):
     """Ask how many tasks this session should include (clamped to a sane
