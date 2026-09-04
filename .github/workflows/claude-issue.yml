@@ -5,11 +5,22 @@ name: Claude issue worker
 # the issue, implements the change across the repo, runs the tests, and opens a
 # PR that closes the issue.
 #
-# Two ways to trigger it — RESTRICTED TO THE REPO OWNER (TroggoMan). Anyone
-# may open issues, but only the owner can hand one to Claude (the
-# checker-dispute workflow is separate and stays fully automatic):
-#   * Add the  claude  label to an issue, OR
-#   * Comment  @claude  on an issue.
+# Ways to trigger it:
+#   * The owner (TroggoMan) adds the  claude  label to any issue, OR
+#   * The owner comments  @claude  on an issue, OR
+#   * A WHITELISTED user opens an issue that carries a trigger label
+#     (bug / enhancement — the issue forms apply these automatically).
+#
+# The whitelist is the repo secret  CLAUDE_ISSUE_WHITELIST  — a JSON array of
+# GitHub usernames, e.g.  ["TroggoMan","KirMozor"]  — so it isn't visible in
+# this file or its history. Edit it under Settings → Secrets and variables →
+# Actions, or:  gh secret set CLAUDE_ISSUE_WHITELIST --body '["a","b"]'
+# The trigger labels are not sensitive and stay in ISSUE_TRIGGER_LABELS below.
+#
+# Reactions track the run on the issue (and the triggering comment gets 👀):
+#   👀 seen/queued   🚀 running   🎉 done   😕 paused (usage limit)   👎 failed
+#
+# The checker-dispute workflow is separate and stays fully automatic.
 #
 # NOTE: label/mention-triggered workflows run from the DEFAULT branch, so this
 # file must be merged to the default branch before the trigger will fire.
@@ -30,11 +41,11 @@ on:
   issue_comment:
     types: [created]
 
-# Serialize all Claude runs (fresh + resumes) — they share one subscription
-# budget, so parallel runs would just trip the limit for each other.
-concurrency:
-  group: claude-work
-  cancel-in-progress: false
+env:
+  # Labels that, on a whitelisted user's issue, hand it to Claude. The issue
+  # forms apply "bug" (bug report, lab setup) and "enhancement" (feature
+  # request) on their own. "claude" stays owner-only and is handled separately.
+  ISSUE_TRIGGER_LABELS: '["bug","enhancement"]'
 
 permissions:
   contents: write
@@ -44,16 +55,94 @@ permissions:
   id-token: write
 
 jobs:
+  # Decide whether this event should start a Claude run. Kept in one place so
+  # the ack and the worker can't drift apart. Event fields are read through
+  # env (never inlined into the script) so a crafted comment body can't inject
+  # shell.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          ACTOR: ${{ github.actor }}
+          LABEL: ${{ github.event.label.name }}
+          IS_PR: ${{ github.event.issue.pull_request != null }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          WHITELIST: ${{ secrets.CLAUDE_ISSUE_WHITELIST }}
+          TRIGGER_LABELS: ${{ env.ISSUE_TRIGGER_LABELS }}
+          OWNER: TroggoMan
+        run: |
+          set -euo pipefail
+          go=false
+
+          # Owner comments @claude on an issue (not a PR — claude-pr-review.yml
+          # owns that side).
+          if [ "$EVENT_NAME" = "issue_comment" ] \
+             && [ "$IS_PR" != "true" ] \
+             && [ "$ACTOR" = "$OWNER" ] \
+             && printf '%s' "$COMMENT_BODY" | grep -qF '@claude'; then
+            go=true
+          fi
+
+          if [ "$EVENT_NAME" = "issues" ] && [ "$ACTION" = "labeled" ]; then
+            # Owner hands an issue over with the `claude` label.
+            if [ "$LABEL" = "claude" ] && [ "$ACTOR" = "$OWNER" ]; then
+              go=true
+            fi
+            # Whitelisted author + a trigger label on their issue. Tolerate an
+            # unset/malformed secret by treating the whitelist as empty.
+            wl="${WHITELIST:-[]}"
+            printf '%s' "$wl" | jq -e 'type == "array"' >/dev/null 2>&1 || {
+              echo "::warning::CLAUDE_ISSUE_WHITELIST is not a JSON array; treating as empty"
+              wl='[]'
+            }
+            if printf '%s' "$TRIGGER_LABELS" | jq -e --arg l "$LABEL" 'any(.[]; . == $l)' >/dev/null \
+               && printf '%s' "$wl" | jq -e --arg u "$ISSUE_AUTHOR" 'any(.[]; . == $u)' >/dev/null; then
+              go=true
+            fi
+          fi
+
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          echo "gate: go=$go (event=$EVENT_NAME action=${ACTION:-} label=${LABEL:-} actor=$ACTOR author=${ISSUE_AUTHOR:-})"
+
+  # Immediate, visible acknowledgement. Separate from `work` and deliberately
+  # NOT in the claude-work concurrency group, so 👀 lands right away even when
+  # another Claude run is holding the budget queue. `work` waits on this so the
+  # reaction order stays seen -> running.
+  ack:
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: React 👀 seen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/react.sh "${{ github.event.issue.number }}" seen
+      - name: Also 👀 the triggering comment
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: gh api --method POST "repos/$REPO/issues/comments/${{ github.event.comment.id }}/reactions" -f content=eyes
+
   work:
-    # Owner-only: strangers may open issues, but only TroggoMan can trigger a
-    # Claude run (via the "claude" label or an @claude comment). Ignore comments
-    # on pull requests (issue_comment fires for both).
+    needs: [gate, ack]
     if: >-
-      github.actor == 'TroggoMan' &&
-      (
-        (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'claude') ||
-        (github.event_name == 'issue_comment' && !github.event.issue.pull_request && contains(github.event.comment.body, '@claude'))
-      )
+      !cancelled() && needs.gate.outputs.go == 'true'
+    # Serialize the actual Claude runs (fresh + resumes + sweeps) — they share
+    # one subscription budget, so parallel runs would just trip the limit for
+    # each other. Only this job joins the queue; gate/ack run immediately.
+    concurrency:
+      group: claude-work
+      cancel-in-progress: false
     uses: ./.github/workflows/claude-worker.yml
     with:
       issue_number: ${{ github.event.issue.number }}

@@ -44,6 +44,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: React 🚀 running
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/react.sh "${{ inputs.issue_number }}" running
+
       # Remove the pending label up front so the next scheduler tick doesn't
       # start a duplicate resume while this one is still running. If we hit
       # the limit again, the save step below re-adds it with fresh state.
@@ -122,6 +127,7 @@ jobs:
         run: python3 .github/scripts/claude_usage_limit.py "${{ steps.claude.outputs.execution_file }}"
 
       - name: Save progress and schedule auto-resume
+        id: save
         if: steps.limit.outputs.rate_limited == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -177,6 +183,19 @@ jobs:
             --color FBCA04 || true
           gh issue edit "$ISSUE" --add-label claude-resume-pending
           echo "Paused. Resume scheduled after $RESET_HUMAN."
+
+      - name: React with the outcome
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.claude.outcome }}" = "success" ]; then
+            bash .github/scripts/react.sh "${{ inputs.issue_number }}" success
+          elif [ "${{ steps.limit.outputs.rate_limited }}" = "true" ] && [ "${{ steps.save.outcome }}" = "success" ]; then
+            bash .github/scripts/react.sh "${{ inputs.issue_number }}" paused
+          else
+            bash .github/scripts/react.sh "${{ inputs.issue_number }}" failure
+          fi
 
       - name: Fail on real (non-limit) errors
         if: steps.claude.outcome == 'failure' && steps.limit.outputs.rate_limited != 'true'

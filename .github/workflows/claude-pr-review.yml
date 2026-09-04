@@ -14,6 +14,9 @@ name: Claude PR review
 # and contents:read — a prompt-injection in the PR can at worst produce a
 # misleading review comment, it cannot touch the repo.
 #
+# Reactions track the run on the PR (and the triggering comment gets 👀):
+#   👀 seen/queued   🚀 running   🎉 review posted   👎 failed
+#
 # NOTE: comment-triggered workflows run from the DEFAULT branch, so this file
 # must be merged to master before the trigger will fire.
 #
@@ -26,15 +29,6 @@ on:
   issue_comment:
     types: [created]
 
-# Share the one Claude subscription budget with the issue worker / resumer /
-# sweeper so runs serialize instead of tripping each other's usage limit. A
-# review queued behind a long issue run can be dropped if another Claude run
-# arrives before it starts (see claude-sweep.yml) — if that happens, just
-# comment @claude again.
-concurrency:
-  group: claude-work
-  cancel-in-progress: false
-
 permissions:
   contents: read
   pull-requests: write
@@ -43,15 +37,46 @@ permissions:
   id-token: write
 
 jobs:
-  review:
-    # Owner-only, PR comments only (issue_comment fires for issues and PRs;
-    # the issue side is handled by claude-issue.yml), and only when the
-    # comment actually mentions @claude.
+  # Immediate 👀 — not in the claude-work concurrency group, so it lands even
+  # while another Claude run holds the budget queue. `review` waits on this so
+  # the reaction order stays seen -> running.
+  ack:
     if: >-
       github.actor == 'TroggoMan' &&
       github.event.issue.pull_request &&
       contains(github.event.comment.body, '@claude')
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: React 👀 seen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/react.sh "${{ github.event.issue.number }}" seen
+      - name: Also 👀 the triggering comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: gh api --method POST "repos/$REPO/issues/comments/${{ github.event.comment.id }}/reactions" -f content=eyes
+
+  review:
+    needs: ack
+    # Same guard as `ack` (issue_comment fires for issues and PRs; the issue
+    # side is claude-issue.yml). `!cancelled()` lets this run even if the ack
+    # job hiccups.
+    if: >-
+      !cancelled() &&
+      github.actor == 'TroggoMan' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    # Share the one Claude subscription budget with the issue worker / resumer
+    # / sweeper so runs serialize instead of tripping each other's usage limit.
+    # A review queued behind a long issue run can be dropped if another Claude
+    # run arrives before it starts (see claude-sweep.yml) — if that happens,
+    # just comment @claude again.
+    concurrency:
+      group: claude-work
+      cancel-in-progress: false
     steps:
       - name: Check out the base repo
         uses: actions/checkout@v5
@@ -64,6 +89,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr checkout ${{ github.event.issue.number }}
+
+      - name: React 🚀 running
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/react.sh "${{ github.event.issue.number }}" running
 
       - name: AI review of the PR
         uses: anthropics/claude-code-action@v1
@@ -116,3 +146,14 @@ jobs:
             merge. Your output is the review comment only.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: React with the outcome
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            bash .github/scripts/react.sh "${{ github.event.issue.number }}" success
+          else
+            bash .github/scripts/react.sh "${{ github.event.issue.number }}" failure
+          fi
