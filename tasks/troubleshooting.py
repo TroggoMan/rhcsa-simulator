@@ -966,8 +966,9 @@ class SshdBadConfigFaultTask(TroubleshootingTask):
                                           message=f"sshd -t still fails: {r.stderr.strip()[:100]}"))
 
         # Check 2: bad line removed (3 pts)
+        # grep -c exits 1 (non-success) when the count is 0, so success can't be required here
         r = execute_safe(['grep', '-c', 'InvalidDirective', '/etc/ssh/sshd_config'])
-        if r.success and r.stdout.strip() == '0':
+        if r.stdout.strip() == '0':
             checks.append(ValidationCheck("bad_line_removed", True, 3, message="Invalid directive removed from sshd_config"))
             score += 3
         else:
@@ -1255,8 +1256,9 @@ class BadFstabFaultTask(TroubleshootingTask):
         score = 0
 
         # Check 1: bad line gone (5 pts)
+        # grep -c exits 1 (non-success) when the count is 0, so success can't be required here
         r = execute_safe(['grep', '-c', 'RHCSA-FAULT-FSTAB', '/etc/fstab'])
-        if r.success and r.stdout.strip() == '0':
+        if r.stdout.strip() == '0':
             checks.append(ValidationCheck("bad_entry_removed", True, 5, message="Bad fstab entry removed"))
             score += 5
         else:
