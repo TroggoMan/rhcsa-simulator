@@ -1063,10 +1063,10 @@ class DiagnoseSELinuxServiceTask(BaseTask):
                 "symptom": "Samba cannot access /srv/samba/data",
                 "directory": "/srv/samba/data",
                 "context_type": "samba_share_t",
-                "boolean_name": "samba_enable_home_dirs",
+                "boolean_name": None,
                 "port": None,
                 "port_type": None,
-                "fix_desc": "Set file context AND enable the samba boolean",
+                "fix_desc": "Set the correct file context on the share directory",
             },
         ]
 
