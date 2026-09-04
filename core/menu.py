@@ -802,9 +802,16 @@ For RHCSA exam info: https://www.redhat.com/rhcsa
         input("\nPress Enter to return...")
 
     def _snapshot_import(self, progress_code, db, confirm_action):
+        import os
+        from pathlib import Path
+
         fmt.clear_screen()
         fmt.print_header("IMPORT PROGRESS CODE")
-        print("Paste your progress code (dashes/spaces/newlines are fine).")
+        print("Paste your progress code (dashes/spaces/newlines are fine), or")
+        print("enter the absolute path to a file containing it (e.g. the")
+        print(f"{fmt.dim(str(settings.DATA_DIR / 'progress_code.txt'))} saved on export —")
+        print("long codes can be silently truncated by the terminal's paste buffer,")
+        print("so a file path is the safer option for those).")
         print(fmt.dim("Enter a blank line when done, or just press Enter to cancel."))
         print()
         lines = []
@@ -813,7 +820,16 @@ For RHCSA exam info: https://www.redhat.com/rhcsa
             if not line.strip():
                 break
             lines.append(line.strip())
-        code = ''.join(lines)
+
+        if len(lines) == 1 and os.path.isabs(lines[0]) and os.path.isfile(lines[0]):
+            try:
+                code = Path(lines[0]).read_text().strip()
+            except OSError as e:
+                print(fmt.error(f"Could not read {lines[0]}: {e}"))
+                input("\nPress Enter to return...")
+                return
+        else:
+            code = ''.join(lines)
         if not code:
             print(fmt.dim("Cancelled."))
             input("\nPress Enter to return...")
