@@ -1,0 +1,118 @@
+name: Claude PR review
+
+# Companion to claude-issue.yml. That workflow deliberately ignores comments
+# on pull requests (it only takes plain issues and opens its own PR). This one
+# is the missing half: the owner comments  @claude  on a PR and an AI reviewer
+# reads the diff + discussion, checks it against the repo's conventions, runs
+# the tests, and posts a review comment. It is REVIEW-ONLY — it never pushes,
+# never merges, never approves; the merge decision stays with the owner.
+#
+# Trigger — RESTRICTED TO THE REPO OWNER (TroggoMan). Anyone may comment on a
+# PR, but only an  @claude  comment from the owner starts a review. This guard
+# matters more here than on issues: a PR (especially from a fork) carries
+# untrusted code and description text, so the run is kept to read-only tools
+# and contents:read — a prompt-injection in the PR can at worst produce a
+# misleading review comment, it cannot touch the repo.
+#
+# NOTE: comment-triggered workflows run from the DEFAULT branch, so this file
+# must be merged to master before the trigger will fire.
+#
+# Auth: same repo secret as the other Claude workflows — set ONE of:
+#   * CLAUDE_CODE_OAUTH_TOKEN  — from `claude setup-token` (uses your Claude
+#     subscription), OR
+#   * ANTHROPIC_API_KEY        — pay-as-you-go Anthropic API key.
+
+on:
+  issue_comment:
+    types: [created]
+
+# Share the one Claude subscription budget with the issue worker / resumer /
+# sweeper so runs serialize instead of tripping each other's usage limit. A
+# review queued behind a long issue run can be dropped if another Claude run
+# arrives before it starts (see claude-sweep.yml) — if that happens, just
+# comment @claude again.
+concurrency:
+  group: claude-work
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  # Required to exchange CLAUDE_CODE_OAUTH_TOKEN via OIDC.
+  id-token: write
+
+jobs:
+  review:
+    # Owner-only, PR comments only (issue_comment fires for issues and PRs;
+    # the issue side is handled by claude-issue.yml), and only when the
+    # comment actually mentions @claude.
+    if: >-
+      github.actor == 'TroggoMan' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the base repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Bring the PR's head into the workspace so Claude reads the actual
+      # proposed code, not just the diff text. Works for fork PRs too.
+      - name: Check out the PR head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr checkout ${{ github.event.issue.number }}
+
+      - name: AI review of the PR
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: >-
+            --allowedTools "Bash,Read,Grep,Glob"
+            --max-turns 60
+          prompt: |
+            The repo owner asked you to review pull request
+            #${{ github.event.issue.number }} in this repository — the RHCSA
+            EX200 v10 exam simulator (Python, standard library only; test suite
+            runs with `python3 -m pytest -q`).
+
+            The PR's head branch is already checked out in the working tree.
+
+            Work narrowly to keep the review cheap — review the DIFF, do not
+            audit the whole repo.
+
+            Steps:
+            1. Read the PR, its description and the discussion:
+                 gh pr view ${{ github.event.issue.number }} --comments
+               and the diff:
+                 gh pr diff ${{ github.event.issue.number }}
+               Also read the latest  @claude  comment on the PR — if it asks
+               for something specific, focus the review on that.
+            2. Read the changed files (and only their immediate context) in the
+               working tree. Judge the change on:
+                  - correctness — logic bugs, wrong paths / device names / grep
+                    patterns, inverted conditions, off-by-ones, bad RHEL10
+                    assumptions;
+                  - fit with the conventions already in the files it touches;
+                  - stdlib-only rule — no new third-party imports;
+                  - test coverage — is the change exercised by tests/?
+                  - scope — does it change more than it claims to?
+            3. If the changed code is runnable, run `python3 -m pytest -q` and
+               report the result. If it only touches a slice, run the relevant
+               test module.
+            4. Post ONE review comment with your findings:
+                 gh pr review ${{ github.event.issue.number }} --comment --body "..."
+               Structure it as: a one-line recommendation (LGTM / needs work /
+               blocking issue), then a short bullet list of specific points,
+               each pointing at a file:line. Be concrete and skeptical; if it's
+               clean, say so briefly. Fall back to
+                 gh pr comment ${{ github.event.issue.number }} --body "..."
+               if the review call fails.
+
+            Do NOT push commits, do NOT approve or request changes, do NOT
+            merge. Your output is the review comment only.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
