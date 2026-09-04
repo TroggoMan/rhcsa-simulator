@@ -209,7 +209,11 @@ class ConfigureRepoTask(BaseTask):
             ))
 
         # Check 3: baseurl is configured correctly (3 points)
-        result = execute_safe(['grep', '-c', f'baseurl={self.base_url}', repo_file])
+        # dnf's .repo files are parsed as INI (configparser), which allows
+        # optional whitespace around "=" (e.g. "baseurl = <url>"). Match that
+        # with -E and tolerate whitespace instead of requiring "baseurl=<url>"
+        # verbatim.
+        result = execute_safe(['grep', '-c', '-E', f'baseurl[ \\t]*=[ \\t]*{re.escape(self.base_url)}', repo_file])
         if result.success and result.stdout.strip() != '0':
             checks.append(ValidationCheck(
                 name="baseurl_configured",
@@ -220,7 +224,7 @@ class ConfigureRepoTask(BaseTask):
             total_points += 3
         else:
             # Partial credit if baseurl line exists but different URL
-            result2 = execute_safe(['grep', '-c', 'baseurl=', repo_file])
+            result2 = execute_safe(['grep', '-c', '-E', 'baseurl[ \\t]*=', repo_file])
             if result2.success and result2.stdout.strip() != '0':
                 checks.append(ValidationCheck(
                     name="baseurl_configured",
@@ -240,7 +244,7 @@ class ConfigureRepoTask(BaseTask):
                 ))
 
         # Check 4: gpgcheck setting (2 points)
-        result = execute_safe(['grep', '-c', f'gpgcheck={self.gpgcheck}', repo_file])
+        result = execute_safe(['grep', '-c', '-E', f'gpgcheck[ \\t]*=[ \\t]*{self.gpgcheck}', repo_file])
         if result.success and result.stdout.strip() != '0':
             checks.append(ValidationCheck(
                 name="gpgcheck_setting",
