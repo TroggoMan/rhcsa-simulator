@@ -1,10 +1,6 @@
 # RHCSA Mock Exam Simulator - Python Dependencies
 #
 # Core simulator uses ONLY Python standard library.
-# No external dependencies are required for basic functionality!
+# No external dependencies are required!
 #
 # Compatible with Python 3.6+ (included in RHEL 8/9)
-
-# Optional: AI-Powered Feedback (Enhanced Practice Mode)
-# Uncomment to enable intelligent, real-time feedback using Claude API
-# anthropic>=0.7.0
