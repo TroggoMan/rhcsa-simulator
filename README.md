@@ -592,11 +592,6 @@ rhcsa-simulator/
    state (a process to kill, an LV to extend), add `has_fault_injection = True`
    with `inject_fault()` / `restore_fault()`.
 
-## AI-powered feedback (optional)
-
-Set `ANTHROPIC_API_KEY` to enable line-by-line command analysis. See
-[AI_SETUP.md](AI_SETUP.md).
-
 ## Troubleshooting
 
 - **"must be run as root"** — launch with `sudo`.

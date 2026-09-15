@@ -53,7 +53,7 @@ python3 -m pytest -v            # Verbose output
   a port, because firewall tasks are graded.
 - `tasks/` — Task definitions (188 tasks, 25 categories, 8 domains)
 - `validators/` — Safe read-only system validators for each task type
-- `utils/` — AI feedback, progress reports, device detection
+- `utils/` — formatting, logging, device detection
 - `utils/system_id.py` — distro + system-resource identification (see below)
 - `config/` — Settings and constants
 - `data/` — SQLite progress DB, bookmarks
@@ -81,7 +81,7 @@ python3 -m pytest -v            # Verbose output
   Alma the simulator handed LVM tasks the system VG and considered the system
   LVs cleanup fodder. Add detection, not another name.
 - **Requires root** — many validators run real system commands
-- **No internet needed** — fully offline; optional Claude AI feedback via `ANTHROPIC_API_KEY`
+- **No internet needed** — fully offline, no external dependencies
 - **Loop devices** — LVM tasks can use virtual disks (option 13 in menu) when no spare disk exists
 
 ## Testing on This VM
@@ -91,10 +91,6 @@ This container may lack real systemd, SELinux enforcement, and firewalld. Tests 
 1. Use a RHEL/Rocky Linux 9+ VM
 2. Run as root
 3. Set up a loop device for LVM tasks: `python3 rhcsa_simulator.py` → option 13
-
-## AI Feedback Setup
-
-Set `ANTHROPIC_API_KEY` env var to enable line-by-line command analysis. See `AI_SETUP.md`.
 
 ## Branch
 
